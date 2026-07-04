@@ -1,16 +1,17 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+import { initializeApp } from "firebase/app";
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 import { getFirestore, collection, addDoc, onSnapshot, query, updateDoc, doc, increment } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
 // TODO: Ganti dengan Config dari Firebase Console lu
 const firebaseConfig = {
-  apiKey: "API_KEY_LU",
-  authDomain: "PROJECT_LU.firebaseapp.com",
-  projectId: "PROJECT_LU",
-  storageBucket: "PROJECT_LU.appspot.com",
-  messagingSenderId: "ID",
-  appId: "APP_ID"
+  apiKey: "AIzaSyDHAmtSYKLdZ-yL2ELRHTis31AwS1Ut_70",
+  authDomain: "catatutang-6baef.firebaseapp.com",
+  projectId: "catatutang-6baef",
+  storageBucket: "catatutang-6baef.firebasestorage.app",
+  messagingSenderId: "1051803957990",
+  appId: "1:1051803957990:web:9781a7514cbe44ab0d1927"
 };
+
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
