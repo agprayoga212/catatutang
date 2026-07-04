@@ -3,195 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KeuanganKu PWA</title>
+  <title>KeuanganKu Pro</title>
   <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    /* Import Font Modern dari Google */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
-
-    :root {
-      --primary: #4F46E5; /* Warna ungu/biru modern */
-      --primary-hover: #4338CA;
-      --bg: #F3F4F6; /* Abu-abu terang untuk background luar */
-      --surface: #FFFFFF; /* Putih bersih untuk card */
-      --text-main: #111827;
-      --text-muted: #6B7280;
-      --border: #E5E7EB;
-      --danger: #EF4444;
-      --success: #10B981;
-    }
-
-    body { 
-      font-family: 'Inter', sans-serif; 
-      background-color: var(--bg);
-      color: var(--text-main);
-      padding: 20px; 
-      max-width: 480px; /* Ukuran pas untuk PWA di HP */
-      margin: 0 auto; 
-      line-height: 1.5;
-    }
-
-    .hidden { display: none !important; }
-
-    h2 { 
-      text-align: center; 
-      font-weight: 600; 
-      color: var(--primary);
-      margin-bottom: 24px;
-    }
-
-    h3 { 
-      margin-top: 0; 
-      font-size: 16px; 
-      color: var(--text-main);
-      border-bottom: 2px solid var(--bg);
-      padding-bottom: 10px;
-    }
-
-    /* Styling Card biar kaya aplikasi beneran */
-    .card { 
-      background: var(--surface); 
-      border: 1px solid var(--border); 
-      padding: 20px; 
-      margin-bottom: 20px; 
-      border-radius: 16px; 
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-    }
-
-    /* Styling Input & Select */
-    input, select { 
-      width: 100%; 
-      padding: 12px 16px; 
-      margin: 8px 0 16px 0; 
-      border: 1px solid var(--border); 
-      border-radius: 10px; 
-      box-sizing: border-box; 
-      font-family: inherit;
-      font-size: 14px;
-      background-color: #F9FAFB;
-      transition: all 0.2s;
-    }
-
-    input:focus, select:focus {
-      outline: none;
-      border-color: var(--primary);
-      background-color: var(--surface);
-      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
-    }
-
-    /* Styling Tombol */
-    button { 
-      width: 100%;
-      padding: 14px; 
-      background: var(--primary); 
-      color: white; 
-      border: none; 
-      border-radius: 10px; 
-      font-size: 15px;
-      font-weight: 600; 
-      cursor: pointer; 
-      transition: background 0.2s, transform 0.1s; 
-    }
-
-    button:hover { background: var(--primary-hover); }
-    button:active { transform: scale(0.98); }
-
-    /* Tombol Logout & Catat Pembayaran */
-    #logout-btn { 
-      background: var(--text-muted); 
-      width: auto; 
-      padding: 8px 16px; 
-      font-size: 13px;
-      border-radius: 8px;
-    }
-    #logout-btn:hover { background: var(--danger); }
-
-    #login-btn {
-      background: var(--surface);
-      color: var(--text-main);
-      border: 1px solid var(--border);
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-    }
-    #login-btn:hover { background: var(--bg); }
-
-    /* List Hutang */
-    ul { list-style: none; padding: 0; margin: 0; }
-    li {
-      background: #F9FAFB;
-      padding: 16px;
-      border-radius: 12px;
-      margin-bottom: 12px;
-      border: 1px solid var(--border);
-      font-size: 14px;
-    }
-    
-    li strong { color: var(--primary); font-size: 15px; display: block; margin-bottom: 4px; }
-    li button { background: var(--success); margin-top: 10px; padding: 10px; }
-    li button:hover { background: #059669; }
-    hr { display: none; } /* Hilangkan garis jelek bawaan */
-    
-    .header-app {
-      display: flex; 
-      justify-content: space-between; 
-      align-items: center;
-      margin-bottom: 20px;
-    }
+    body { background-color: #f3f4f6; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    /* Animasi Toast & Modal */
+    .fade-in { animation: fadeIn 0.2s ease-in-out; }
+    .slide-up { animation: slideUp 0.3s ease-out forwards; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    /* Scrollbar minimalis */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
   </style>
 </head>
 <body>
-
-  <h2>Aplikasi KeuanganKu</h2>
-
-  <div id="login-section">
-    <button id="login-btn">Login dengan Google</button>
-  </div>
-
-  <div id="app-section" class="hidden">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <p>Halo, <span id="user-name"></span></p>
-      <button id="logout-btn" style="background: red;">Logout</button>
-    </div>
-
-    <div class="card">
-      <h3>Catat Transaksi</h3>
-      <select id="tipe-transaksi">
-        <option value="pemasukan">Pemasukan</option>
-        <option value="pengeluaran">Pengeluaran</option>
-      </select>
-      
-      <select id="kategori">
-        <option value="Gaji/Fee">Gaji / Fee Desain</option>
-        <option value="Makan Minum">Makan & Minum (Mamam Ayam, RM Apollo, dll)</option>
-        <option value="Belanja Online">Belanja (Tokopedia, Shopee)</option>
-        <option value="Kebutuhan Harian">Kebutuhan Harian (Putra Ciremai, dll)</option>
-        <option value="Lainnya">Lainnya</option>
-      </select>
-      
-      <input type="number" id="nominal" placeholder="Nominal (Rp)">
-      <button id="simpan-transaksi">Simpan</button>
-    </div>
-
-    <div class="card">
-      <h3>Catat Hutang / Piutang</h3>
-      <select id="tipe-hutang">
-        <option value="hutang">Gw Berhutang ke...</option>
-        <option value="piutang">Orang Berhutang ke Gw...</option>
-      </select>
-      <input type="text" id="nama-orang" placeholder="Nama Orang">
-      <input type="number" id="nominal-hutang" placeholder="Nominal (Rp)">
-      <button id="simpan-hutang">Catat</button>
-    </div>
-
-    <div class="card">
-      <h3>Daftar Hutang / Piutang Aktif</h3>
-      <ul id="list-hutang"></ul>
-    </div>
-  </div>
-
-  <script type="module" src="app.js"></script>
+  <div id="root"></div>
+  <script type="text/babel" data-type="module" src="app.js"></script>
 </body>
 </html>
