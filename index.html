@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeuanganKu PWA</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    .hidden { display: none; }
+    .card { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    button { padding: 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    input, select { padding: 8px; margin: 5px 0; width: 90%; }
+  </style>
+</head>
+<body>
+
+  <h2>Aplikasi KeuanganKu</h2>
+
+  <div id="login-section">
+    <button id="login-btn">Login dengan Google</button>
+  </div>
+
+  <div id="app-section" class="hidden">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <p>Halo, <span id="user-name"></span></p>
+      <button id="logout-btn" style="background: red;">Logout</button>
+    </div>
+
+    <div class="card">
+      <h3>Catat Transaksi</h3>
+      <select id="tipe-transaksi">
+        <option value="pemasukan">Pemasukan</option>
+        <option value="pengeluaran">Pengeluaran</option>
+      </select>
+      
+      <select id="kategori">
+        <option value="Gaji/Fee">Gaji / Fee Desain</option>
+        <option value="Makan Minum">Makan & Minum (Mamam Ayam, RM Apollo, dll)</option>
+        <option value="Belanja Online">Belanja (Tokopedia, Shopee)</option>
+        <option value="Kebutuhan Harian">Kebutuhan Harian (Putra Ciremai, dll)</option>
+        <option value="Lainnya">Lainnya</option>
+      </select>
+      
+      <input type="number" id="nominal" placeholder="Nominal (Rp)">
+      <button id="simpan-transaksi">Simpan</button>
+    </div>
+
+    <div class="card">
+      <h3>Catat Hutang / Piutang</h3>
+      <select id="tipe-hutang">
+        <option value="hutang">Gw Berhutang ke...</option>
+        <option value="piutang">Orang Berhutang ke Gw...</option>
+      </select>
+      <input type="text" id="nama-orang" placeholder="Nama Orang">
+      <input type="number" id="nominal-hutang" placeholder="Nominal (Rp)">
+      <button id="simpan-hutang">Catat</button>
+    </div>
+
+    <div class="card">
+      <h3>Daftar Hutang / Piutang Aktif</h3>
+      <ul id="list-hutang"></ul>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
