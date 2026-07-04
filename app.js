@@ -8,12 +8,12 @@ const { useState, useEffect, useMemo, useRef } = window.React;
 // 1. FIREBASE CONFIG (JANGAN UBAH KEY LU!)
 // ==========================================
 const firebaseConfig = {
-  apiKey: "API_KEY_LU", // ISI DENGAN API KEY LU
-  authDomain: "PROJECT_LU.firebaseapp.com",
-  projectId: "PROJECT_LU",
-  storageBucket: "PROJECT_LU.appspot.com",
-  messagingSenderId: "ID",
-  appId: "APP_ID"
+  apiKey: "AIzaSyDHAmtSYKLdZ-yL2ELRHTis31AwS1Ut_70",
+  authDomain: "catatutang-6baef.firebaseapp.com",
+  projectId: "catatutang-6baef",
+  storageBucket: "catatutang-6baef.firebasestorage.app",
+  messagingSenderId: "1051803957990",
+  appId: "1:1051803957990:web:9781a7514cbe44ab0d1927"
 };
 
 const app = initializeApp(firebaseConfig);
