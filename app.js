@@ -123,7 +123,7 @@ const App = () => {
     );
   }
 
-  // --- LOGIKA PERHITUNGAN DASHBOARD ---
+  // Perhitungan Dashboard
   const totalPemasukan = transaksi.filter(t => t.tipe === 'pemasukan').reduce((acc, curr) => acc + curr.nominal, 0);
   const totalPengeluaran = transaksi.filter(t => t.tipe === 'pengeluaran').reduce((acc, curr) => acc + curr.nominal, 0);
   const saldo = totalPemasukan - totalPengeluaran;
@@ -146,12 +146,12 @@ const App = () => {
         </button>
       </div>
 
-      {/* Konten Tab */}
+      {/* Konten Utama Berdasarkan Tab */}
       <div className="animate-fade-in">
         {activeTab === 'dashboard' && <Dashboard saldo={saldo} inTotal={totalPemasukan} outTotal={totalPengeluaran} hutang={hutangAktif} piutang={piutangAktif} formatRp={formatRp} />}
         {activeTab === 'transaksi' && <TransaksiForm user={user} showToast={showToast} />}
-        {activeTab === 'hutang' && <HutangForm user={user} showToast={showToast} />}
-        {activeTab === 'data' && <DataList user={user} transaksi={transaksi} hutangPiutang={hutangPiutang} showToast={showToast} formatRp={formatRp} />}
+        {activeTab === 'hutang' && <HutangTabMaster user={user} hutangPiutang={hutangPiutang} showToast={showToast} formatRp={formatRp} />}
+        {activeTab === 'riwayat' && <RiwayatKas transaksi={transaksi} showToast={showToast} formatRp={formatRp} user={user} />}
         {activeTab === 'backup' && <Backup user={user} showToast={showToast} />}
       </div>
 
@@ -159,9 +159,9 @@ const App = () => {
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around py-3 px-2 z-40 max-w-md mx-auto shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         {[
           { id: 'dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', label: 'Home' },
-          { id: 'transaksi', icon: 'M12 6v6m0 0v6m0-6h6m-6 0H6', label: 'Catat' },
+          { id: 'transaksi', icon: 'M12 6v6m0 0v6m0-6h6m-6 0H6', label: 'Catat Kas' },
           { id: 'hutang', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z', label: 'Hutang' },
-          { id: 'data', icon: 'M4 6h16M4 10h16M4 14h16M4 18h16', label: 'Data' },
+          { id: 'riwayat', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', label: 'Riwayat' },
           { id: 'backup', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12', label: 'Backup' }
         ].map(item => (
           <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 ${activeTab === item.id ? 'text-indigo-600' : 'text-gray-400'}`}>
@@ -209,7 +209,7 @@ const Dashboard = ({ saldo, inTotal, outTotal, hutang, piutang, formatRp }) => (
 );
 
 // ==========================================
-// 5. KOMPONEN INPUT TRANSAKSI
+// 5. KOMPONEN INPUT TRANSAKSI (KAS UTAMA)
 // ==========================================
 const TransaksiForm = ({ user, showToast }) => {
   const [loading, setLoading] = useState(false);
@@ -228,7 +228,7 @@ const TransaksiForm = ({ user, showToast }) => {
   };
 
   return (
-    <Card title="Catat Transaksi">
+    <Card title="Catat Transaksi Kas Utama">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm text-gray-600 mb-1">Tipe</label>
@@ -260,73 +260,43 @@ const TransaksiForm = ({ user, showToast }) => {
 };
 
 // ==========================================
-// 6. KOMPONEN INPUT HUTANG / PIUTANG
+// 6. TAB HUTANG MASTER (GABUNGAN INPUT & DAFTAR DATA)
 // ==========================================
-const HutangForm = ({ user, showToast }) => {
-  const [loading, setLoading] = useState(false);
+const HutangTabMaster = ({ user, hutangPiutang, showToast, formatRp }) => {
+  const [subTab, setSubTab] = useState('daftar'); // default tampilkan daftar list dulu
+  const [search, setSearch] = useState('');
+  const [modalHapus, setModalHapus] = useState({ isOpen: false, id: null });
+  
+  const [expandedId, setExpandedId] = useState(null); 
+  const [nominalBayar, setNominalBayar] = useState('');
+  const [loadingForm, setLoadingForm] = useState(false);
   const [form, setForm] = useState({ tipe: 'hutang', nama: '', nominal: '' });
 
-  const handleSubmit = async (e) => {
+  const filteredHutang = useMemo(() => hutangPiutang.filter(h => h.nama?.toLowerCase().includes(search.toLowerCase())), [hutangPiutang, search]);
+
+  // Handle Tambah Hutang Baru
+  const handleAddHutang = async (e) => {
     e.preventDefault();
     if (!form.nama || !form.nominal || form.nominal <= 0) return showToast('Data tidak lengkap/valid!', 'error');
-    setLoading(true);
+    setLoadingForm(true);
     try {
       await addDoc(collection(db, "users", user.uid, "hutang_piutang"), { 
         tipe: form.tipe, nama: form.nama, total: Number(form.nominal), terbayar: 0, status: 'aktif', tanggal: new Date(), riwayat: []
       });
-      showToast('Data berhasil dicatat!');
+      showToast('Data hutang berhasil dicatat!');
       setForm({ ...form, nama: '', nominal: '' });
+      setSubTab('daftar'); // otomatis balik ke list data setelah input sukses
     } catch (e) { showToast('Gagal menyimpan', 'error'); }
-    setLoading(false);
+    setLoadingForm(false);
   };
 
-  return (
-    <Card title="Catat Hutang / Piutang">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <select className="w-full p-3 border rounded-xl bg-gray-50" value={form.tipe} onChange={e => setForm({...form, tipe: e.target.value})}>
-          <option value="hutang">Gw Berhutang ke...</option>
-          <option value="piutang">Orang Berhutang ke Gw...</option>
-        </select>
-        <input type="text" className="w-full p-3 border rounded-xl bg-gray-50" placeholder="Nama Orang" value={form.nama} onChange={e => setForm({...form, nama: e.target.value})} />
-        <input type="number" className="w-full p-3 border rounded-xl bg-gray-50" placeholder="Total Nominal (Rp)" value={form.nominal} onChange={e => setForm({...form, nominal: e.target.value})} />
-        <button disabled={loading} type="submit" className="w-full py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 flex justify-center">
-          {loading ? <Spinner /> : 'Catat Data'}
-        </button>
-      </form>
-    </Card>
-  );
-};
-
-// ==========================================
-// 7. KOMPONEN LIST & EDIT DATA (Transaksi & Hutang)
-// ==========================================
-const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
-  const [subTab, setSubTab] = useState('transaksi'); 
-  const [search, setSearch] = useState('');
-  const [modalHapus, setModalHapus] = useState({ isOpen: false, id: null, collection: '' });
-  
-  // State untuk Dropdown & Form Cicilan
-  const [expandedId, setExpandedId] = useState(null); 
-  const [nominalBayar, setNominalBayar] = useState('');
-
-  // Filter Data
-  const filteredTrans = useMemo(() => transaksi.filter(t => t.kategori?.toLowerCase().includes(search.toLowerCase()) || t.tipe?.toLowerCase().includes(search.toLowerCase())), [transaksi, search]);
-  const filteredHutang = useMemo(() => hutangPiutang.filter(h => h.nama?.toLowerCase().includes(search.toLowerCase())), [hutangPiutang, search]);
-
-  const eksekusiHapus = async () => {
-    try {
-      await deleteDoc(doc(db, "users", user.uid, modalHapus.collection, modalHapus.id));
-      showToast('Data terhapus!');
-    } catch (e) { showToast('Gagal menghapus', 'error'); }
-  };
-
+  // Handle Bayar Cicilan
   const bayarHutang = async (h) => {
     const bayar = Number(nominalBayar);
     const sisa = h.total - h.terbayar;
     if (!bayar || bayar <= 0 || bayar > sisa) return showToast('Nominal tidak valid / melebih sisa!', 'error');
     
     try {
-      // 1. Catat ke kas (transaksi)
       const transRef = await addDoc(collection(db, "users", user.uid, "transaksi"), {
         tipe: h.tipe === 'hutang' ? 'pengeluaran' : 'pemasukan',
         kategori: `Pembayaran ${h.tipe} - ${h.nama}`,
@@ -334,7 +304,6 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
         tanggal: new Date()
       });
 
-      // 2. Buat objek riwayat cicilan
       const riwayatBaru = {
         id: Date.now().toString(),
         transId: transRef.id,
@@ -345,74 +314,71 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
       const updatedRiwayat = [...(h.riwayat || []), riwayatBaru];
       const newTerbayar = h.terbayar + bayar;
 
-      // 3. Update doc hutang
-      const docRef = doc(db, "users", user.uid, "hutang_piutang", h.id);
-      await updateDoc(docRef, { 
+      await updateDoc(doc(db, "users", user.uid, "hutang_piutang", h.id), { 
         terbayar: newTerbayar, 
         status: (newTerbayar >= h.total) ? 'lunas' : 'aktif',
         riwayat: updatedRiwayat
       });
       
-      showToast('Pembayaran dicatat & disinkronkan ke kas!');
+      showToast('Cicilan dicatat & disinkronkan ke kas!');
       setNominalBayar('');
     } catch (e) { showToast('Gagal bayar', 'error'); }
   };
 
+  // Handle Hapus Cicilan Tunggal
   const hapusRiwayat = async (h, item) => {
     if(!window.confirm('Yakin mau hapus riwayat cicilan ini? Saldo utang dan kas utama akan disesuaikan kembali.')) return;
-    
     try {
       const updatedRiwayat = (h.riwayat || []).filter(r => r.id !== item.id);
       const newTerbayar = h.terbayar - item.nominal;
 
-      // 1. Update doc hutang (Kurangi terbayar, hapus riwayat dari array)
-      const docRef = doc(db, "users", user.uid, "hutang_piutang", h.id);
-      await updateDoc(docRef, {
+      await updateDoc(doc(db, "users", user.uid, "hutang_piutang", h.id), {
         terbayar: newTerbayar,
         status: newTerbayar >= h.total ? 'lunas' : 'aktif',
         riwayat: updatedRiwayat
       });
 
-      // 2. Hapus transaksi terkait di kas (jika ada ID-nya)
       if (item.transId) {
         await deleteDoc(doc(db, "users", user.uid, "transaksi", item.transId));
       }
-
       showToast('Riwayat berhasil dihapus!');
     } catch (e) { showToast('Gagal menghapus riwayat', 'error'); }
   };
 
+  // Handle Hapus Seluruh Data Hutang
+  const eksekusiHapusHutang = async () => {
+    try {
+      await deleteDoc(doc(db, "users", user.uid, "hutang_piutang", modalHapus.id));
+      showToast('Seluruh data hutang ini terhapus!');
+    } catch (e) { showToast('Gagal menghapus', 'error'); }
+  };
+
   return (
     <div>
-      <div className="flex bg-white rounded-xl shadow-sm p-1 mb-4">
-        <button onClick={() => setSubTab('transaksi')} className={`flex-1 py-2 text-sm font-medium rounded-lg ${subTab==='transaksi'?'bg-indigo-50 text-indigo-700':'text-gray-500'}`}>Transaksi</button>
-        <button onClick={() => setSubTab('hutang')} className={`flex-1 py-2 text-sm font-medium rounded-lg ${subTab==='hutang'?'bg-indigo-50 text-indigo-700':'text-gray-500'}`}>Hutang/Piutang</button>
+      {/* Sub Tab Navigation */}
+      <div className="flex bg-white rounded-xl shadow-sm p-1 mb-4 border border-gray-100">
+        <button onClick={() => setSubTab('daftar')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${subTab==='daftar'?'bg-orange-500 text-white shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Daftar Hutang</button>
+        <button onClick={() => setSubTab('catat')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${subTab==='catat'?'bg-orange-500 text-white shadow-sm':'text-gray-500 hover:text-gray-700'}`}>+ Catat Baru</button>
       </div>
 
-      <input type="text" placeholder="Cari data..." className="w-full p-3 mb-4 border rounded-xl focus:ring-2 outline-none" value={search} onChange={e => setSearch(e.target.value)} />
-
-      {subTab === 'transaksi' && (
+      {subTab === 'catat' ? (
+        <Card title="Catat Hutang / Piutang Baru">
+          <form onSubmit={handleAddHutang} className="space-y-4">
+            <select className="w-full p-3 border rounded-xl bg-gray-50 focus:ring-2 outline-none" value={form.tipe} onChange={e => setForm({...form, tipe: e.target.value})}>
+              <option value="hutang">Gw Berhutang ke...</option>
+              <option value="piutang">Orang Berhutang ke Gw...</option>
+            </select>
+            <input type="text" className="w-full p-3 border rounded-xl bg-gray-50 focus:ring-2 outline-none" placeholder="Nama Orang" value={form.nama} onChange={e => setForm({...form, nama: e.target.value})} />
+            <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 focus:ring-2 outline-none" placeholder="Total Nominal (Rp)" value={form.nominal} onChange={e => setForm({...form, nominal: e.target.value})} />
+            <button disabled={loadingForm} type="submit" className="w-full py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 flex justify-center transition">
+              {loadingForm ? <Spinner /> : 'Catat Data'}
+            </button>
+          </form>
+        </Card>
+      ) : (
         <div className="space-y-3">
-          {filteredTrans.map(t => (
-            <div key={t.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
-              <div>
-                <p className="font-semibold text-gray-800">{t.kategori}</p>
-                <p className="text-xs text-gray-400">{new Date(t.tanggal?.seconds * 1000).toLocaleDateString()}</p>
-              </div>
-              <div className="text-right flex flex-col items-end gap-2">
-                <span className={`font-bold ${t.tipe === 'pemasukan' ? 'text-emerald-500' : 'text-red-500'}`}>
-                  {t.tipe === 'pemasukan' ? '+' : '-'}{formatRp(t.nominal)}
-                </span>
-                <button onClick={() => setModalHapus({ isOpen: true, id: t.id, collection: 'transaksi' })} className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded">Hapus</button>
-              </div>
-            </div>
-          ))}
-          {filteredTrans.length === 0 && <p className="text-center text-gray-400 py-4">Data tidak ditemukan</p>}
-        </div>
-      )}
-
-      {subTab === 'hutang' && (
-        <div className="space-y-3">
+          <input type="text" placeholder="Cari nama orang..." className="w-full p-3 border rounded-xl focus:ring-2 outline-none bg-white shadow-sm mb-1" value={search} onChange={e => setSearch(e.target.value)} />
+          
           {filteredHutang.map(h => (
             <div key={h.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
               <div className="flex justify-between mb-2">
@@ -420,7 +386,7 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
                   <span className={`text-xs px-2 py-1 rounded-full font-medium ${h.tipe === 'hutang' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
                     {h.tipe.toUpperCase()}
                   </span>
-                  <p className="font-semibold mt-1">{h.nama}</p>
+                  <p className="font-semibold mt-1 text-gray-800">{h.nama}</p>
                   <p className="text-xs text-gray-400">{new Date(h.tanggal?.seconds * 1000).toLocaleDateString()}</p>
                 </div>
                 <div className="text-right">
@@ -436,7 +402,6 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
                 <div className="flex justify-between text-red-500 border-t mt-1 pt-1"><span>Sisa:</span> <span className="font-semibold">{formatRp(h.total - h.terbayar)}</span></div>
               </div>
 
-              {/* Tombol Toggle Dropdown */}
               <button 
                 onClick={() => setExpandedId(expandedId === h.id ? null : h.id)} 
                 className="w-full text-center text-sm text-indigo-600 font-medium py-2 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition flex justify-center items-center gap-1"
@@ -445,23 +410,19 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
                 <svg className={`w-4 h-4 transform transition-transform ${expandedId === h.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
               </button>
 
-              {/* Konten Dropdown (Form & Riwayat) */}
               {expandedId === h.id && (
                 <div className="mt-3 border-t pt-3 animate-fade-in">
-                  
-                  {/* Form Bayar Cicilan */}
                   {h.status !== 'lunas' && (
                     <div className="flex gap-2 mb-4">
-                      <input type="number" placeholder="Ketik Nominal Cicilan" className="flex-1 p-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-200" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
-                      <button onClick={() => bayarHutang(h)} className="bg-indigo-600 text-white px-4 rounded-lg text-sm font-medium hover:bg-indigo-700">Bayar</button>
+                      <input type="number" placeholder="Nominal Cicilan" className="flex-1 p-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-200" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
+                      <button onClick={() => bayarHutang(h)} className="bg-indigo-600 text-white px-4 rounded-lg text-sm font-medium hover:bg-indigo-700 transition">Bayar</button>
                     </div>
                   )}
 
-                  {/* List Riwayat */}
                   <div className="space-y-2">
                     <p className="text-xs font-bold text-gray-500 uppercase">Riwayat Cicilan</p>
                     {(!h.riwayat || h.riwayat.length === 0) ? (
-                      <p className="text-xs text-gray-400 italic">Belum ada riwayat cicilan dicatat.</p>
+                      <p className="text-xs text-gray-400 italic">Belum ada riwayat cicilan.</p>
                     ) : (
                       h.riwayat.map(r => (
                         <div key={r.id} className="flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
@@ -471,7 +432,7 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
                               {r.tanggal?.seconds ? new Date(r.tanggal.seconds * 1000).toLocaleDateString() : new Date(r.tanggal).toLocaleDateString()}
                             </p>
                           </div>
-                          <button onClick={() => hapusRiwayat(h, r)} className="text-red-500 hover:text-red-700 bg-red-100 p-1.5 rounded-md transition" title="Hapus cicilan ini">
+                          <button onClick={() => hapusRiwayat(h, r)} className="text-red-500 hover:text-red-700 bg-red-100 p-1.5 rounded-md transition">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                           </button>
                         </div>
@@ -479,9 +440,8 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
                     )}
                   </div>
 
-                  {/* Tombol Hapus Seluruh Hutang */}
                   <div className="mt-4 pt-3 border-t flex justify-end">
-                    <button onClick={() => setModalHapus({ isOpen: true, id: h.id, collection: 'hutang_piutang' })} className="text-xs text-red-500 font-medium flex items-center gap-1 hover:text-red-600 px-2 py-1 bg-white border border-red-200 rounded-md">
+                    <button onClick={() => setModalHapus({ isOpen: true, id: h.id })} className="text-xs text-red-500 font-medium flex items-center gap-1 hover:text-red-600 px-2 py-1 bg-white border border-red-200 rounded-md transition">
                        Hapus Seluruh Data Ini
                     </button>
                   </div>
@@ -495,10 +455,60 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
 
       <ConfirmModal 
         isOpen={modalHapus.isOpen} 
-        onClose={() => setModalHapus({ isOpen: false, id: null, collection: '' })} 
-        onConfirm={eksekusiHapus}
-        title="Hapus Data"
-        message="Yakin mau menghapus data ini? Aksi ini tidak bisa dibatalkan lho."
+        onClose={() => setModalHapus({ isOpen: false, id: null })} 
+        onConfirm={eksekusiHapusHutang}
+        title="Hapus Seluruh Catatan"
+        message="Yakin mau menghapus data ini secara permanen? Seluruh riwayat cicilan di dalam data ini juga akan terhapus."
+      />
+    </div>
+  );
+};
+
+// ==========================================
+// 7. TAB RIWAYAT TRANSAKSI (KAS UTAMA)
+// ==========================================
+const RiwayatKas = ({ transaksi, showToast, formatRp, user }) => {
+  const [search, setSearch] = useState('');
+  const [modalHapus, setModalHapus] = useState({ isOpen: false, id: null });
+
+  const filteredTrans = useMemo(() => transaksi.filter(t => t.kategori?.toLowerCase().includes(search.toLowerCase()) || t.tipe?.toLowerCase().includes(search.toLowerCase())), [transaksi, search]);
+
+  const eksekusiHapusKas = async () => {
+    try {
+      await deleteDoc(doc(db, "users", user.uid, "transaksi", modalHapus.id));
+      showToast('Transaksi terhapus dari riwayat kas!');
+    } catch (e) { showToast('Gagal menghapus', 'error'); }
+  };
+
+  return (
+    <div>
+      <h3 className="text-lg font-bold text-gray-800 mb-3 px-1">Riwayat Transaksi Kas</h3>
+      <input type="text" placeholder="Cari kategori kas..." className="w-full p-3 mb-4 border rounded-xl focus:ring-2 outline-none bg-white shadow-sm" value={search} onChange={e => setSearch(e.target.value)} />
+      
+      <div className="space-y-3">
+        {filteredTrans.map(t => (
+          <div key={t.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+            <div>
+              <p className="font-semibold text-gray-800">{t.kategori}</p>
+              <p className="text-xs text-gray-400">{new Date(t.tanggal?.seconds * 1000).toLocaleDateString()}</p>
+            </div>
+            <div className="text-right flex flex-col items-end gap-2">
+              <span className={`font-bold ${t.tipe === 'pemasukan' ? 'text-emerald-500' : 'text-red-500'}`}>
+                {t.tipe === 'pemasukan' ? '+' : '-'}{formatRp(t.nominal)}
+              </span>
+              <button onClick={() => setModalHapus({ isOpen: true, id: t.id })} className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded hover:bg-red-100 transition">Hapus</button>
+            </div>
+          </div>
+        ))}
+        {filteredTrans.length === 0 && <p className="text-center text-gray-400 py-4">Belum ada riwayat transaksi</p>}
+      </div>
+
+      <ConfirmModal 
+        isOpen={modalHapus.isOpen} 
+        onClose={() => setModalHapus({ isOpen: false, id: null })} 
+        onConfirm={eksekusiHapusKas}
+        title="Hapus Riwayat Kas"
+        message="Aksi ini akan menghapus data transaksi ini dari kas utama secara permanen."
       />
     </div>
   );
@@ -538,7 +548,6 @@ const Backup = ({ user, showToast }) => {
         const data = JSON.parse(e.target.result);
         const batch = writeBatch(db);
         
-        // Loop penambahan data tanpa menghapus yang lama
         if(data.transaksi) data.transaksi.forEach(t => {
            const ref = doc(collection(db, "users", user.uid, "transaksi"));
            batch.set(ref, t);
@@ -553,7 +562,7 @@ const Backup = ({ user, showToast }) => {
       } catch(error) { showToast('File JSON tidak valid', 'error'); }
     };
     reader.readAsText(file);
-    e.target.value = null; // Reset input
+    e.target.value = null; 
   };
 
   return (
