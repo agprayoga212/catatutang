@@ -113,7 +113,7 @@ const App = () => {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
         <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm text-center">
-          <h1 className="text-2xl font-bold text-indigo-600 mb-6">KeuanganKu Pro</h1>
+          <h1 className="text-2xl font-bold text-indigo-600 mb-6">Catat Utang</h1>
           <button onClick={handleLogin} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition flex justify-center gap-2 items-center">
             Login dengan Google
           </button>
