@@ -5,7 +5,7 @@ import { getFirestore, collection, addDoc, onSnapshot, query, updateDoc, doc, de
 const { useState, useEffect, useMemo, useRef } = window.React;
 
 // ==========================================
-// 1. FIREBASE CONFIG (JANGAN UBAH KEY LU!)
+// 1. FIREBASE CONFIG
 // ==========================================
 const firebaseConfig = {
   apiKey: "AIzaSyDHAmtSYKLdZ-yL2ELRHTis31AwS1Ut_70",
@@ -170,8 +170,6 @@ const App = () => {
           </button>
         ))}
       </div>
-
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 };
@@ -303,13 +301,15 @@ const HutangForm = ({ user, showToast }) => {
 // 7. KOMPONEN LIST & EDIT DATA (Transaksi & Hutang)
 // ==========================================
 const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
-  const [subTab, setSubTab] = useState('transaksi'); // transaksi, hutang
+  const [subTab, setSubTab] = useState('transaksi'); 
   const [search, setSearch] = useState('');
   const [modalHapus, setModalHapus] = useState({ isOpen: false, id: null, collection: '' });
-  const [bayarId, setBayarId] = useState(null); // ID hutang yg sedang dibayar
+  
+  // State untuk Dropdown & Form Cicilan
+  const [expandedId, setExpandedId] = useState(null); 
   const [nominalBayar, setNominalBayar] = useState('');
 
-  // Logika Filter & Search
+  // Filter Data
   const filteredTrans = useMemo(() => transaksi.filter(t => t.kategori?.toLowerCase().includes(search.toLowerCase()) || t.tipe?.toLowerCase().includes(search.toLowerCase())), [transaksi, search]);
   const filteredHutang = useMemo(() => hutangPiutang.filter(h => h.nama?.toLowerCase().includes(search.toLowerCase())), [hutangPiutang, search]);
 
@@ -323,27 +323,63 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
   const bayarHutang = async (h) => {
     const bayar = Number(nominalBayar);
     const sisa = h.total - h.terbayar;
-    if (!bayar || bayar <= 0 || bayar > sisa) return showToast('Nominal tidak valid!', 'error');
+    if (!bayar || bayar <= 0 || bayar > sisa) return showToast('Nominal tidak valid / melebih sisa!', 'error');
     
     try {
-      const docRef = doc(db, "users", user.uid, "hutang_piutang", h.id);
-      await updateDoc(docRef, { 
-        terbayar: increment(bayar), 
-        status: (h.terbayar + bayar >= h.total) ? 'lunas' : 'aktif',
-        // Update tanpa menghapus struktur lama (kompatibilitas)
-      });
-
-      // Otomatis catat ke kas (Logic lama dipertahankan)
-      await addDoc(collection(db, "users", user.uid, "transaksi"), {
+      // 1. Catat ke kas (transaksi)
+      const transRef = await addDoc(collection(db, "users", user.uid, "transaksi"), {
         tipe: h.tipe === 'hutang' ? 'pengeluaran' : 'pemasukan',
         kategori: `Pembayaran ${h.tipe} - ${h.nama}`,
         nominal: bayar,
         tanggal: new Date()
       });
+
+      // 2. Buat objek riwayat cicilan
+      const riwayatBaru = {
+        id: Date.now().toString(),
+        transId: transRef.id,
+        nominal: bayar,
+        tanggal: new Date()
+      };
+
+      const updatedRiwayat = [...(h.riwayat || []), riwayatBaru];
+      const newTerbayar = h.terbayar + bayar;
+
+      // 3. Update doc hutang
+      const docRef = doc(db, "users", user.uid, "hutang_piutang", h.id);
+      await updateDoc(docRef, { 
+        terbayar: newTerbayar, 
+        status: (newTerbayar >= h.total) ? 'lunas' : 'aktif',
+        riwayat: updatedRiwayat
+      });
       
-      showToast('Pembayaran dicatat & disinkronkan!');
-      setBayarId(null); setNominalBayar('');
+      showToast('Pembayaran dicatat & disinkronkan ke kas!');
+      setNominalBayar('');
     } catch (e) { showToast('Gagal bayar', 'error'); }
+  };
+
+  const hapusRiwayat = async (h, item) => {
+    if(!window.confirm('Yakin mau hapus riwayat cicilan ini? Saldo utang dan kas utama akan disesuaikan kembali.')) return;
+    
+    try {
+      const updatedRiwayat = (h.riwayat || []).filter(r => r.id !== item.id);
+      const newTerbayar = h.terbayar - item.nominal;
+
+      // 1. Update doc hutang (Kurangi terbayar, hapus riwayat dari array)
+      const docRef = doc(db, "users", user.uid, "hutang_piutang", h.id);
+      await updateDoc(docRef, {
+        terbayar: newTerbayar,
+        status: newTerbayar >= h.total ? 'lunas' : 'aktif',
+        riwayat: updatedRiwayat
+      });
+
+      // 2. Hapus transaksi terkait di kas (jika ada ID-nya)
+      if (item.transId) {
+        await deleteDoc(doc(db, "users", user.uid, "transaksi", item.transId));
+      }
+
+      showToast('Riwayat berhasil dihapus!');
+    } catch (e) { showToast('Gagal menghapus riwayat', 'error'); }
   };
 
   return (
@@ -400,19 +436,56 @@ const DataList = ({ user, transaksi, hutangPiutang, showToast, formatRp }) => {
                 <div className="flex justify-between text-red-500 border-t mt-1 pt-1"><span>Sisa:</span> <span className="font-semibold">{formatRp(h.total - h.terbayar)}</span></div>
               </div>
 
-              {h.status !== 'lunas' && (
-                bayarId === h.id ? (
-                  <div className="flex gap-2">
-                    <input type="number" placeholder="Nominal" className="flex-1 p-2 border rounded-lg text-sm" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
-                    <button onClick={() => bayarHutang(h)} className="bg-indigo-600 text-white px-4 rounded-lg text-sm font-medium">Bayar</button>
-                    <button onClick={() => setBayarId(null)} className="bg-gray-200 text-gray-600 px-3 rounded-lg text-sm">X</button>
+              {/* Tombol Toggle Dropdown */}
+              <button 
+                onClick={() => setExpandedId(expandedId === h.id ? null : h.id)} 
+                className="w-full text-center text-sm text-indigo-600 font-medium py-2 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition flex justify-center items-center gap-1"
+              >
+                {expandedId === h.id ? 'Tutup Detail' : 'Lihat & Catat Cicilan'}
+                <svg className={`w-4 h-4 transform transition-transform ${expandedId === h.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+              </button>
+
+              {/* Konten Dropdown (Form & Riwayat) */}
+              {expandedId === h.id && (
+                <div className="mt-3 border-t pt-3 animate-fade-in">
+                  
+                  {/* Form Bayar Cicilan */}
+                  {h.status !== 'lunas' && (
+                    <div className="flex gap-2 mb-4">
+                      <input type="number" placeholder="Ketik Nominal Cicilan" className="flex-1 p-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-200" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
+                      <button onClick={() => bayarHutang(h)} className="bg-indigo-600 text-white px-4 rounded-lg text-sm font-medium hover:bg-indigo-700">Bayar</button>
+                    </div>
+                  )}
+
+                  {/* List Riwayat */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-gray-500 uppercase">Riwayat Cicilan</p>
+                    {(!h.riwayat || h.riwayat.length === 0) ? (
+                      <p className="text-xs text-gray-400 italic">Belum ada riwayat cicilan dicatat.</p>
+                    ) : (
+                      h.riwayat.map(r => (
+                        <div key={r.id} className="flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-700">{formatRp(r.nominal)}</p>
+                            <p className="text-[10px] text-gray-400">
+                              {r.tanggal?.seconds ? new Date(r.tanggal.seconds * 1000).toLocaleDateString() : new Date(r.tanggal).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <button onClick={() => hapusRiwayat(h, r)} className="text-red-500 hover:text-red-700 bg-red-100 p-1.5 rounded-md transition" title="Hapus cicilan ini">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                          </button>
+                        </div>
+                      ))
+                    )}
                   </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <button onClick={() => setBayarId(h.id)} className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100">Catat Cicilan</button>
-                    <button onClick={() => setModalHapus({ isOpen: true, id: h.id, collection: 'hutang_piutang' })} className="p-2 bg-red-50 text-red-500 rounded-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+
+                  {/* Tombol Hapus Seluruh Hutang */}
+                  <div className="mt-4 pt-3 border-t flex justify-end">
+                    <button onClick={() => setModalHapus({ isOpen: true, id: h.id, collection: 'hutang_piutang' })} className="text-xs text-red-500 font-medium flex items-center gap-1 hover:text-red-600 px-2 py-1 bg-white border border-red-200 rounded-md">
+                       Hapus Seluruh Data Ini
+                    </button>
                   </div>
-                )
+                </div>
               )}
             </div>
           ))}
