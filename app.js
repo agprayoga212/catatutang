@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 import { getFirestore, collection, addDoc, onSnapshot, query, updateDoc, doc, increment } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { initializeApp } from "firebase/app";
+
 
 // TODO: Ganti dengan Config dari Firebase Console lu
 const firebaseConfig = {
