@@ -6,11 +6,140 @@
   <title>KeuanganKu PWA</title>
   <link rel="manifest" href="manifest.json">
   <style>
-    body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
-    .hidden { display: none; }
-    .card { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
-    button { padding: 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
-    input, select { padding: 8px; margin: 5px 0; width: 90%; }
+    /* Import Font Modern dari Google */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+
+    :root {
+      --primary: #4F46E5; /* Warna ungu/biru modern */
+      --primary-hover: #4338CA;
+      --bg: #F3F4F6; /* Abu-abu terang untuk background luar */
+      --surface: #FFFFFF; /* Putih bersih untuk card */
+      --text-main: #111827;
+      --text-muted: #6B7280;
+      --border: #E5E7EB;
+      --danger: #EF4444;
+      --success: #10B981;
+    }
+
+    body { 
+      font-family: 'Inter', sans-serif; 
+      background-color: var(--bg);
+      color: var(--text-main);
+      padding: 20px; 
+      max-width: 480px; /* Ukuran pas untuk PWA di HP */
+      margin: 0 auto; 
+      line-height: 1.5;
+    }
+
+    .hidden { display: none !important; }
+
+    h2 { 
+      text-align: center; 
+      font-weight: 600; 
+      color: var(--primary);
+      margin-bottom: 24px;
+    }
+
+    h3 { 
+      margin-top: 0; 
+      font-size: 16px; 
+      color: var(--text-main);
+      border-bottom: 2px solid var(--bg);
+      padding-bottom: 10px;
+    }
+
+    /* Styling Card biar kaya aplikasi beneran */
+    .card { 
+      background: var(--surface); 
+      border: 1px solid var(--border); 
+      padding: 20px; 
+      margin-bottom: 20px; 
+      border-radius: 16px; 
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    }
+
+    /* Styling Input & Select */
+    input, select { 
+      width: 100%; 
+      padding: 12px 16px; 
+      margin: 8px 0 16px 0; 
+      border: 1px solid var(--border); 
+      border-radius: 10px; 
+      box-sizing: border-box; 
+      font-family: inherit;
+      font-size: 14px;
+      background-color: #F9FAFB;
+      transition: all 0.2s;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--primary);
+      background-color: var(--surface);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    }
+
+    /* Styling Tombol */
+    button { 
+      width: 100%;
+      padding: 14px; 
+      background: var(--primary); 
+      color: white; 
+      border: none; 
+      border-radius: 10px; 
+      font-size: 15px;
+      font-weight: 600; 
+      cursor: pointer; 
+      transition: background 0.2s, transform 0.1s; 
+    }
+
+    button:hover { background: var(--primary-hover); }
+    button:active { transform: scale(0.98); }
+
+    /* Tombol Logout & Catat Pembayaran */
+    #logout-btn { 
+      background: var(--text-muted); 
+      width: auto; 
+      padding: 8px 16px; 
+      font-size: 13px;
+      border-radius: 8px;
+    }
+    #logout-btn:hover { background: var(--danger); }
+
+    #login-btn {
+      background: var(--surface);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    #login-btn:hover { background: var(--bg); }
+
+    /* List Hutang */
+    ul { list-style: none; padding: 0; margin: 0; }
+    li {
+      background: #F9FAFB;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      font-size: 14px;
+    }
+    
+    li strong { color: var(--primary); font-size: 15px; display: block; margin-bottom: 4px; }
+    li button { background: var(--success); margin-top: 10px; padding: 10px; }
+    li button:hover { background: #059669; }
+    hr { display: none; } /* Hilangkan garis jelek bawaan */
+    
+    .header-app {
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center;
+      margin-bottom: 20px;
+    }
   </style>
 </head>
 <body>
