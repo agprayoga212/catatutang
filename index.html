@@ -4,17 +4,53 @@
 <head>
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#1F4B3F">
     <title>Catat Utang</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ledger: {
+                            50: '#EEF3F0', 100: '#D9E6DE', 200: '#B7D0C2', 300: '#8FB5A2',
+                            400: '#5D967B', 500: '#3D7A63', 600: '#296B4E', 700: '#1F4B3F',
+                            800: '#173B32', 900: '#0F2921'
+                        },
+                        moss: { 50: '#EFF6F1', 100: '#DCEEE1', 400: '#5CA57E', 500: '#3F8F63', 600: '#2F7A50', 700: '#256440' },
+                        brick: { 50: '#FBEEEC', 100: '#F5D9D3', 400: '#C5645A', 500: '#B0453A', 600: '#94362C', 700: '#7A2C24' },
+                        brass: { 50: '#FBF3E3', 100: '#F3E1BB', 400: '#D9AE4E', 500: '#C0932F', 600: '#A17726', 700: '#835F1F' },
+                        petrol: { 50: '#EAF2F3', 100: '#CFE3E6', 400: '#4F8B96', 500: '#2E6773', 600: '#22505A', 700: '#1B3F47' }
+                    },
+                    fontFamily: {
+                        display: ['Fraunces', 'ui-serif', 'serif'],
+                        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
+                    },
+                    boxShadow: {
+                        soft: '0 1px 2px rgba(15,41,33,0.06), 0 12px 24px -14px rgba(15,41,33,0.28)',
+                        'soft-lg': '0 1px 2px rgba(15,41,33,0.06), 0 16px 28px -14px rgba(15,41,33,0.32)',
+                        nav: '0 20px 40px -14px rgba(15,41,33,0.4)'
+                    }
+                }
+            }
+        }
+    </script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         body {
-            background-color: #f3f4f6;
-            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #F3F5F1;
+            background-image: radial-gradient(circle, rgba(15, 41, 33, 0.07) 1px, transparent 1px);
+            background-size: 22px 22px;
+            font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
         }
 
         /* Animasi Toast & Modal */
@@ -24,6 +60,10 @@
 
         .slide-up {
             animation: slideUp 0.3s ease-out forwards;
+        }
+
+        .stagger-item {
+            animation: riseIn 0.4s ease both;
         }
 
         @keyframes fadeIn {
@@ -48,6 +88,30 @@
             }
         }
 
+        @keyframes riseIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Sobekan kertas di bawah kartu saldo - motif "kertas struk/ledger" */
+        .torn-edge {
+            clip-path: polygon(
+                0 0, 100% 0, 100% 100%,
+                95% calc(100% - 10px), 90% 100%, 85% calc(100% - 10px), 80% 100%,
+                75% calc(100% - 10px), 70% 100%, 65% calc(100% - 10px), 60% 100%,
+                55% calc(100% - 10px), 50% 100%, 45% calc(100% - 10px), 40% 100%,
+                35% calc(100% - 10px), 30% 100%, 25% calc(100% - 10px), 20% 100%,
+                15% calc(100% - 10px), 10% 100%, 5% calc(100% - 10px), 0 100%
+            );
+        }
+
         /* Scrollbar minimalis */
         ::-webkit-scrollbar {
             width: 6px;
@@ -55,12 +119,23 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
+            background: #B7D0C2;
             border-radius: 4px;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
+            background: #8FB5A2;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
         }
     </style>
 </head>
