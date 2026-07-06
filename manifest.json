@@ -1,10 +1,10 @@
 {
-  "name": "KeuanganKu",
-  "short_name": "KeuanganKu",
+  "name": "Catat Utang",
+  "short_name": "Catat Utang",
   "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#4CAF50",
+  "theme_color": "#6B2419",
   "icons": [
     {
       "src": "https://www.w3schools.com/w3images/avatar2.png", 

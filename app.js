@@ -151,11 +151,25 @@ const App = () => {
 
   const [toast, setToast] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [sendingLink, setSendingLink] = useState(false);
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
+
+  // authMode: 'login' | 'daftar' | 'lupa'
+  const [authMode, setAuthMode] = useState('login');
+  const [authForm, setAuthForm] = useState({ email: '', password: '' });
+  const [authLoading, setAuthLoading] = useState(false);
+  const [confirmationSent, setConfirmationSent] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [isRecovery, setIsRecovery] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
 
   const showToast = (msg, type = 'success') => setToast({ message: msg, type });
+
+  // Deteksi redirect dari link "Lupa Password" (Supabase mengirim event PASSWORD_RECOVERY)
+  useEffect(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setIsRecovery(true);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   // Cek sesi login yang sedang aktif + dengerin perubahan auth (login/logout, termasuk redirect balik dari Google)
   useEffect(() => {
@@ -220,18 +234,66 @@ const App = () => {
     return () => { active = false; supabase.removeChannel(channel); };
   }, [user]);
 
-  const handleMagicLink = async (e) => {
+  // Daftar akun baru (email + password), lalu Supabase otomatis kirim email konfirmasi (magic link)
+  const handleSignUp = async (e) => {
     e.preventDefault();
-    if (!loginEmail.trim()) return showToast('Masukin email dulu!', 'error');
-    setSendingLink(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: loginEmail.trim(),
+    const email = authForm.email.trim();
+    const password = authForm.password;
+    if (!email) return showToast('Masukin email dulu!', 'error');
+    if (!password || password.length < 6) return showToast('Password minimal 6 karakter!', 'error');
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
       options: { emailRedirectTo: window.location.origin + window.location.pathname }
     });
-    setSendingLink(false);
-    if (error) return showToast('Gagal mengirim link', 'error');
-    setMagicLinkSent(true);
+    setAuthLoading(false);
+    if (error) return showToast(error.message === 'User already registered' ? 'Email sudah terdaftar, coba login' : 'Gagal mendaftar', 'error');
+    setConfirmationSent(true);
   };
+
+  // Login pakai email + password
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    const email = authForm.email.trim();
+    const password = authForm.password;
+    if (!email || !password) return showToast('Email & password wajib diisi!', 'error');
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setAuthLoading(false);
+    if (error) {
+      if (error.message.includes('Email not confirmed')) return showToast('Email belum dikonfirmasi. Cek inbox kamu ya!', 'error');
+      return showToast('Email atau password salah', 'error');
+    }
+  };
+
+  // Lupa password: kirim email berisi link reset
+  const handleLupaPassword = async (e) => {
+    e.preventDefault();
+    const email = authForm.email.trim();
+    if (!email) return showToast('Masukin email dulu!', 'error');
+    setAuthLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    setAuthLoading(false);
+    if (error) return showToast('Gagal mengirim email reset', 'error');
+    setResetSent(true);
+  };
+
+  // Set password baru setelah user tap link reset dari email (mode recovery)
+  const handleSetNewPassword = async (e) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) return showToast('Password minimal 6 karakter!', 'error');
+    setAuthLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setAuthLoading(false);
+    if (error) return showToast('Gagal mengubah password', 'error');
+    showToast('Password berhasil diubah! Silakan lanjut.');
+    setIsRecovery(false);
+    setNewPassword('');
+  };
+
   const handleLogout = () => supabase.auth.signOut();
 
   if (loadingAuth) return (
@@ -240,7 +302,45 @@ const App = () => {
     </div>
   );
 
-  if (!user) {
+  if (!user || isRecovery) {
+    // Mode khusus: user baru saja tap link "Lupa Password" dari email → minta password baru
+    if (isRecovery) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-ledger-900 relative overflow-hidden">
+          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+          <div className="w-full max-w-sm text-center relative">
+            <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-brass-400 flex items-center justify-center shadow-nav">
+              <span className="font-display font-bold text-2xl text-ledger-900">Rp</span>
+            </div>
+            <h1 className="font-display text-2xl font-semibold text-white mb-2">Buat Password Baru</h1>
+            <p className="text-ledger-200 text-sm mb-8">Masukkan password baru untuk akun kamu.</p>
+            <form onSubmit={handleSetNewPassword} className="space-y-3 text-left">
+              <input
+                type="password"
+                required
+                placeholder="Password baru (min. 6 karakter)"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                className="w-full p-3.5 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-ledger-300 outline-none focus:ring-2 focus:ring-white/40 transition"
+              />
+              <button disabled={authLoading} type="submit" className="w-full py-3.5 bg-white text-stone-700 rounded-2xl font-semibold hover:bg-stone-50 transition flex justify-center gap-2 items-center shadow-nav disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/50">
+                {authLoading ? <Spinner className="h-5 w-5" /> : 'Simpan Password Baru'}
+              </button>
+            </form>
+          </div>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    const updateAuthField = (field) => (e) => setAuthForm(f => ({ ...f, [field]: e.target.value }));
+    const gantiMode = (mode) => {
+      setAuthMode(mode);
+      setConfirmationSent(false);
+      setResetSent(false);
+      setAuthForm({ email: authForm.email, password: '' });
+    };
+
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-ledger-900 relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
@@ -251,26 +351,78 @@ const App = () => {
           <h1 className="font-display text-3xl font-semibold text-white mb-2">Catat Utang</h1>
           <p className="text-ledger-200 text-sm mb-8">Kas harian, hutang, dan piutang — semua rapi dalam satu catatan.</p>
 
-          {magicLinkSent ? (
+          {/* --- KONFIRMASI EMAIL SETELAH DAFTAR --- */}
+          {confirmationSent ? (
             <div className="bg-white/10 border border-white/20 rounded-2xl p-5 text-left">
               <p className="text-white font-semibold mb-1">Cek email kamu 📩</p>
-              <p className="text-ledger-200 text-sm mb-4">Kami udah kirim link login ke <span className="font-semibold text-white">{loginEmail}</span>. Buka email itu di HP/laptop ini, tap link-nya, dan kamu bakal otomatis masuk.</p>
-              <button onClick={() => setMagicLinkSent(false)} className="text-xs text-ledger-200 underline hover:text-white transition">Salah email? Kirim ulang</button>
+              <p className="text-ledger-200 text-sm mb-4">Kami udah kirim link konfirmasi ke <span className="font-semibold text-white">{authForm.email}</span>. Buka email itu, tap link-nya buat konfirmasi akun, terus balik lagi ke sini buat login.</p>
+              <button onClick={() => gantiMode('login')} className="text-xs text-ledger-200 underline hover:text-white transition">Sudah konfirmasi? Login sekarang</button>
             </div>
-          ) : (
-            <form onSubmit={handleMagicLink} className="space-y-3">
+
+          /* --- KONFIRMASI EMAIL RESET PASSWORD TERKIRIM --- */
+          ) : resetSent ? (
+            <div className="bg-white/10 border border-white/20 rounded-2xl p-5 text-left">
+              <p className="text-white font-semibold mb-1">Cek email kamu 📩</p>
+              <p className="text-ledger-200 text-sm mb-4">Link reset password sudah dikirim ke <span className="font-semibold text-white">{authForm.email}</span>. Tap link itu untuk bikin password baru.</p>
+              <button onClick={() => gantiMode('login')} className="text-xs text-ledger-200 underline hover:text-white transition">Kembali ke Login</button>
+            </div>
+
+          /* --- FORM LUPA PASSWORD --- */
+          ) : authMode === 'lupa' ? (
+            <form onSubmit={handleLupaPassword} className="space-y-3 text-left">
               <input
                 type="email"
                 required
                 placeholder="Alamat email kamu"
-                value={loginEmail}
-                onChange={e => setLoginEmail(e.target.value)}
+                value={authForm.email}
+                onChange={updateAuthField('email')}
                 className="w-full p-3.5 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-ledger-300 outline-none focus:ring-2 focus:ring-white/40 transition"
               />
-              <button disabled={sendingLink} type="submit" className="w-full py-3.5 bg-white text-stone-700 rounded-2xl font-semibold hover:bg-stone-50 transition flex justify-center gap-2 items-center shadow-nav disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/50">
-                {sendingLink ? <Spinner className="h-5 w-5" /> : 'Kirim Link Login'}
+              <button disabled={authLoading} type="submit" className="w-full py-3.5 bg-white text-stone-700 rounded-2xl font-semibold hover:bg-stone-50 transition flex justify-center gap-2 items-center shadow-nav disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/50">
+                {authLoading ? <Spinner className="h-5 w-5" /> : 'Kirim Link Reset Password'}
               </button>
-              <p className="text-ledger-300 text-xs">Gak perlu bikin password. Kami kirim link ke email kamu, tinggal tap buat masuk.</p>
+              <p className="text-center">
+                <button type="button" onClick={() => gantiMode('login')} className="text-ledger-300 text-xs underline hover:text-white transition">Kembali ke Login</button>
+              </p>
+            </form>
+
+          /* --- FORM LOGIN / DAFTAR --- */
+          ) : (
+            <form onSubmit={authMode === 'daftar' ? handleSignUp : handleLogin} className="space-y-3 text-left">
+              <input
+                type="email"
+                required
+                placeholder="Alamat email kamu"
+                value={authForm.email}
+                onChange={updateAuthField('email')}
+                className="w-full p-3.5 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-ledger-300 outline-none focus:ring-2 focus:ring-white/40 transition"
+              />
+              <input
+                type="password"
+                required
+                placeholder="Password"
+                value={authForm.password}
+                onChange={updateAuthField('password')}
+                className="w-full p-3.5 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-ledger-300 outline-none focus:ring-2 focus:ring-white/40 transition"
+              />
+
+              {authMode === 'login' && (
+                <p className="text-right">
+                  <button type="button" onClick={() => gantiMode('lupa')} className="text-ledger-300 text-xs underline hover:text-white transition">Lupa password?</button>
+                </p>
+              )}
+
+              <button disabled={authLoading} type="submit" className="w-full py-3.5 bg-white text-stone-700 rounded-2xl font-semibold hover:bg-stone-50 transition flex justify-center gap-2 items-center shadow-nav disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/50">
+                {authLoading ? <Spinner className="h-5 w-5" /> : (authMode === 'daftar' ? 'Daftar Akun Baru' : 'Masuk')}
+              </button>
+
+              <p className="text-ledger-300 text-xs pt-2">
+                {authMode === 'daftar' ? (
+                  <>Sudah punya akun? <button type="button" onClick={() => gantiMode('login')} className="underline font-semibold text-white">Login di sini</button></>
+                ) : (
+                  <>Belum punya akun? <button type="button" onClick={() => gantiMode('daftar')} className="underline font-semibold text-white">Daftar dulu</button></>
+                )}
+              </p>
             </form>
           )}
         </div>
@@ -624,7 +776,7 @@ const KategoriManager = ({ user, showToast, kategoriList, onClose }) => {
 // ==========================================
 // 6. KOMPONEN INPUT HUTANG / PIUTANG
 // ==========================================
-const HutangForm = ({ user, showToast }) => {
+const HutangForm = ({ user, showToast, onSaved }) => {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ tipe: 'hutang', nama: '', nominal: '' });
 
@@ -639,6 +791,7 @@ const HutangForm = ({ user, showToast }) => {
       if (error) throw error;
       showToast('Data berhasil dicatat!');
       setForm({ ...form, nama: '', nominal: '' });
+      if (onSaved) onSaved();
     } catch (e) { showToast('Gagal menyimpan', 'error'); }
     setLoading(false);
   };
@@ -668,6 +821,7 @@ const HutangForm = ({ user, showToast }) => {
 // 6b. HALAMAN HUTANG (Form + List + Cicilan digabung jadi satu tab)
 // ==========================================
 const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }) => {
+  const [subTab, setSubTab] = useState('catat'); // 'catat' = catat/bayar hutang, 'tambah' = tambah daftar hutang baru
   const [search, setSearch] = useState('');
   const [modalHapus, setModalHapus] = useState({ isOpen: false, id: null });
   const [expandedId, setExpandedId] = useState(null);
@@ -745,93 +899,105 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
 
   return (
     <div>
-      <HutangForm user={user} showToast={showToast} />
-
-      <div className="relative mt-1 mb-4">
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-        <input type="text" placeholder="Cari nama..." className="w-full p-3 pl-10 border border-stone-200 rounded-xl bg-white focus:ring-2 focus:ring-ledger-200 focus:border-ledger-300 outline-none transition" value={search} onChange={e => setSearch(e.target.value)} />
+      <div className="mb-4">
+        <SegmentToggle
+          options={[{ value: 'catat', label: 'Catat / Bayar' }, { value: 'tambah', label: 'Tambah Daftar' }]}
+          value={subTab}
+          onChange={setSubTab}
+        />
       </div>
 
-      <div className="space-y-3">
-        {filteredHutang.map((h, i) => {
-          const riwayatH = riwayatCicilan.filter(r => r.hutang_id === h.id);
-          return (
-          <div key={h.id} className="stagger-item bg-white p-4 rounded-2xl shadow-soft border border-stone-100" style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}>
-            <div className="flex justify-between mb-3">
-              <div>
-                <span className={`text-[11px] px-2 py-1 rounded-full font-bold ${h.tipe === 'hutang' ? 'bg-brass-100 text-brass-700' : 'bg-petrol-100 text-petrol-700'}`}>
-                  {h.tipe.toUpperCase()}
-                </span>
-                <p className="font-display font-semibold mt-1.5 text-stone-800">{h.nama}</p>
-                <p className="text-xs text-stone-400">{new Date(h.tanggal).toLocaleDateString('id-ID')}</p>
-              </div>
-              <div className="text-right">
-                <span className={`text-[11px] px-2 py-1 rounded-full font-bold ${h.status === 'lunas' ? 'bg-moss-100 text-moss-700' : 'bg-stone-100 text-stone-500'}`}>
-                  {h.status.toUpperCase()}
-                </span>
-              </div>
-            </div>
+      {subTab === 'tambah' ? (
+        <HutangForm user={user} showToast={showToast} onSaved={() => setSubTab('catat')} />
+      ) : (
+        <>
+          <div className="relative mt-1 mb-4">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input type="text" placeholder="Cari nama..." className="w-full p-3 pl-10 border border-stone-200 rounded-xl bg-white focus:ring-2 focus:ring-ledger-200 focus:border-ledger-300 outline-none transition" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
 
-            <div className="bg-stone-50 p-3.5 rounded-xl text-sm mb-3 space-y-1.5">
-              <LedgerRow label="Total" value={formatRp(h.total)} />
-              <LedgerRow label="Terbayar" value={formatRp(h.terbayar)} valueClass="text-moss-600" />
-              <div className="border-t border-stone-200 pt-1.5">
-                <LedgerRow label="Sisa" value={formatRp(h.total - h.terbayar)} valueClass="text-brick-600" bold />
-              </div>
-            </div>
+          <div className="space-y-3">
+            {filteredHutang.map((h, i) => {
+              const riwayatH = riwayatCicilan.filter(r => r.hutang_id === h.id);
+              return (
+              <div key={h.id} className="stagger-item bg-white p-4 rounded-2xl shadow-soft border border-stone-100" style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}>
+                <div className="flex justify-between mb-3">
+                  <div>
+                    <span className={`text-[11px] px-2 py-1 rounded-full font-bold ${h.tipe === 'hutang' ? 'bg-brass-100 text-brass-700' : 'bg-petrol-100 text-petrol-700'}`}>
+                      {h.tipe.toUpperCase()}
+                    </span>
+                    <p className="font-display font-semibold mt-1.5 text-stone-800">{h.nama}</p>
+                    <p className="text-xs text-stone-400">{new Date(h.tanggal).toLocaleDateString('id-ID')}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className={`text-[11px] px-2 py-1 rounded-full font-bold ${h.status === 'lunas' ? 'bg-moss-100 text-moss-700' : 'bg-stone-100 text-stone-500'}`}>
+                      {h.status.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
 
-            <button
-              onClick={() => setExpandedId(expandedId === h.id ? null : h.id)}
-              className="w-full text-center text-sm text-ledger-700 font-semibold py-2.5 bg-ledger-50 rounded-xl hover:bg-ledger-100 transition flex justify-center items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-ledger-200"
-            >
-              {expandedId === h.id ? 'Tutup Detail' : 'Lihat & Catat Cicilan'}
-              <svg className={`w-4 h-4 transform transition-transform ${expandedId === h.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-            </button>
+                <div className="bg-stone-50 p-3.5 rounded-xl text-sm mb-3 space-y-1.5">
+                  <LedgerRow label="Total" value={formatRp(h.total)} />
+                  <LedgerRow label="Terbayar" value={formatRp(h.terbayar)} valueClass="text-moss-600" />
+                  <div className="border-t border-stone-200 pt-1.5">
+                    <LedgerRow label="Sisa" value={formatRp(h.total - h.terbayar)} valueClass="text-brick-600" bold />
+                  </div>
+                </div>
 
-            {expandedId === h.id && (
-              <div className="mt-3 border-t border-stone-100 pt-3 fade-in">
+                <button
+                  onClick={() => setExpandedId(expandedId === h.id ? null : h.id)}
+                  className="w-full text-center text-sm text-ledger-700 font-semibold py-2.5 bg-ledger-50 rounded-xl hover:bg-ledger-100 transition flex justify-center items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-ledger-200"
+                >
+                  {expandedId === h.id ? 'Tutup Detail' : 'Lihat & Catat Cicilan'}
+                  <svg className={`w-4 h-4 transform transition-transform ${expandedId === h.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
 
-                {h.status !== 'lunas' && (
-                  <div className="flex gap-2 mb-4">
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-mono text-sm">Rp</span>
-                      <input type="number" placeholder="Nominal Cicilan" className="w-full p-2.5 pl-9 border border-stone-200 bg-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-ledger-200 font-mono" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
+                {expandedId === h.id && (
+                  <div className="mt-3 border-t border-stone-100 pt-3 fade-in">
+
+                    {h.status !== 'lunas' && (
+                      <div className="flex gap-2 mb-4">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-mono text-sm">Rp</span>
+                          <input type="number" placeholder="Nominal Cicilan" className="w-full p-2.5 pl-9 border border-stone-200 bg-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-ledger-200 font-mono" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
+                        </div>
+                        <button onClick={() => bayarHutang(h)} className="bg-ledger-700 text-white px-5 rounded-lg text-sm font-bold hover:bg-ledger-800 transition focus:outline-none focus:ring-2 focus:ring-ledger-300">Bayar</button>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-stone-400 uppercase tracking-wide">Riwayat Cicilan</p>
+                      {riwayatH.length === 0 ? (
+                        <p className="text-xs text-stone-400 italic">Belum ada riwayat cicilan dicatat.</p>
+                      ) : (
+                        riwayatH.map(r => (
+                          <div key={r.id} className="flex justify-between items-center bg-stone-50 p-2.5 rounded-lg border border-stone-100">
+                            <div>
+                              <p className="text-sm font-semibold text-stone-700 font-mono">{formatRp(r.nominal)}</p>
+                              <p className="text-[10px] text-stone-400">{new Date(r.tanggal).toLocaleDateString('id-ID')}</p>
+                            </div>
+                            <button onClick={() => hapusRiwayat(h, r)} className="text-brick-500 hover:text-brick-700 bg-brick-100 p-1.5 rounded-md transition" title="Hapus cicilan ini">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                          </div>
+                        ))
+                      )}
                     </div>
-                    <button onClick={() => bayarHutang(h)} className="bg-ledger-700 text-white px-5 rounded-lg text-sm font-bold hover:bg-ledger-800 transition focus:outline-none focus:ring-2 focus:ring-ledger-300">Bayar</button>
+
+                    <div className="mt-4 pt-3 border-t border-stone-100 flex justify-end">
+                      <button onClick={() => setModalHapus({ isOpen: true, id: h.id })} className="text-xs text-brick-600 font-semibold flex items-center gap-1 hover:text-brick-700 px-2.5 py-1.5 bg-white border border-brick-200 rounded-lg transition">
+                        Hapus Seluruh Data Ini
+                      </button>
+                    </div>
                   </div>
                 )}
-
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-stone-400 uppercase tracking-wide">Riwayat Cicilan</p>
-                  {riwayatH.length === 0 ? (
-                    <p className="text-xs text-stone-400 italic">Belum ada riwayat cicilan dicatat.</p>
-                  ) : (
-                    riwayatH.map(r => (
-                      <div key={r.id} className="flex justify-between items-center bg-stone-50 p-2.5 rounded-lg border border-stone-100">
-                        <div>
-                          <p className="text-sm font-semibold text-stone-700 font-mono">{formatRp(r.nominal)}</p>
-                          <p className="text-[10px] text-stone-400">{new Date(r.tanggal).toLocaleDateString('id-ID')}</p>
-                        </div>
-                        <button onClick={() => hapusRiwayat(h, r)} className="text-brick-500 hover:text-brick-700 bg-brick-100 p-1.5 rounded-md transition" title="Hapus cicilan ini">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-stone-100 flex justify-end">
-                  <button onClick={() => setModalHapus({ isOpen: true, id: h.id })} className="text-xs text-brick-600 font-semibold flex items-center gap-1 hover:text-brick-700 px-2.5 py-1.5 bg-white border border-brick-200 rounded-lg transition">
-                    Hapus Seluruh Data Ini
-                  </button>
-                </div>
               </div>
-            )}
+              );
+            })}
+            {filteredHutang.length === 0 && <EmptyState text="Belum ada data hutang/piutang" />}
           </div>
-          );
-        })}
-        {filteredHutang.length === 0 && <EmptyState text="Belum ada data hutang/piutang" />}
-      </div>
+        </>
+      )}
 
       <ConfirmModal
         isOpen={modalHapus.isOpen}
