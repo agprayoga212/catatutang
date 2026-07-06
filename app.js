@@ -1,25 +1,19 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-import { getFirestore, collection, addDoc, onSnapshot, query, updateDoc, doc, deleteDoc, increment, getDocs, writeBatch, setDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const { useState, useEffect, useMemo, useRef } = window.React;
 
 // ==========================================
-// 1. FIREBASE CONFIG
+// 1. SUPABASE CONFIG
 // ==========================================
-const firebaseConfig = {
-  apiKey: "AIzaSyDHAmtSYKLdZ-yL2ELRHTis31AwS1Ut_70",
-  authDomain: "catatutang-6baef.firebaseapp.com",
-  projectId: "catatutang-6baef",
-  storageBucket: "catatutang-6baef.firebasestorage.app",
-  messagingSenderId: "1051803957990",
-  appId: "1:1051803957990:web:9781a7514cbe44ab0d1927"
-};
+// Ambil 2 nilai ini dari: Supabase Dashboard -> Project Settings -> API
+// - Project URL
+// - anon / public key
+// Aman untuk ditaruh di client (sama seperti Firebase apiKey), karena akses
+// data sebenarnya dibatasi oleh Row Level Security (RLS) di sisi database.
+const supabaseUrl = 'GANTI_DENGAN_SUPABASE_PROJECT_URL';
+const supabaseAnonKey = 'GANTI_DENGAN_SUPABASE_ANON_KEY';
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const provider = new GoogleAuthProvider();
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
@@ -124,6 +118,26 @@ const DEFAULT_KATEGORI = {
   pemasukan: ['Gaji/Fee', 'Lainnya']
 };
 
+// Helper: apply 1 event realtime (INSERT/UPDATE/DELETE) ke sebuah array state, lalu sort ulang
+const applyRealtimeChange = (setter, sortFn) => (payload) => {
+  setter(prev => {
+    let next;
+    if (payload.eventType === 'INSERT') {
+      next = prev.some(x => x.id === payload.new.id) ? prev : [...prev, payload.new];
+    } else if (payload.eventType === 'UPDATE') {
+      next = prev.map(x => x.id === payload.new.id ? payload.new : x);
+    } else if (payload.eventType === 'DELETE') {
+      next = prev.filter(x => x.id !== payload.old.id);
+    } else {
+      next = prev;
+    }
+    return sortFn ? [...next].sort(sortFn) : next;
+  });
+};
+
+const byTanggalDesc = (a, b) => new Date(b.tanggal) - new Date(a.tanggal);
+const byUrutanAsc = (a, b) => (a.urutan ?? 0) - (b.urutan ?? 0);
+
 // ==========================================
 // 3. APLIKASI UTAMA
 // ==========================================
@@ -132,56 +146,93 @@ const App = () => {
   const [transaksi, setTransaksi] = useState([]);
   const [hutangPiutang, setHutangPiutang] = useState([]);
   const [kategoriList, setKategoriList] = useState([]);
+  const [riwayatCicilan, setRiwayatCicilan] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
-  
+
   const [toast, setToast] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [sendingLink, setSendingLink] = useState(false);
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
 
   const showToast = (msg, type = 'success') => setToast({ message: msg, type });
 
-  // Sinkronisasi Data Realtime
+  // Cek sesi login yang sedang aktif + dengerin perubahan auth (login/logout, termasuk redirect balik dari Google)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    let mounted = true;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      setUser(session?.user ?? null);
       setLoadingAuth(false);
     });
-    return () => unsubscribe();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
 
+  // Sinkronisasi Data Realtime
   useEffect(() => {
-    if (!user) return;
-    const qTrans = query(collection(db, "users", user.uid, "transaksi"));
-    const unsubTrans = onSnapshot(qTrans, (snap) => {
-      setTransaksi(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.tanggal?.seconds - a.tanggal?.seconds));
-    });
+    if (!user) {
+      setTransaksi([]); setHutangPiutang([]); setKategoriList([]); setRiwayatCicilan([]);
+      return;
+    }
 
-    const qHutang = query(collection(db, "users", user.uid, "hutang_piutang"));
-    const unsubHutang = onSnapshot(qHutang, (snap) => {
-      setHutangPiutang(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.tanggal?.seconds - a.tanggal?.seconds));
-    });
+    let active = true;
 
-    const qKategori = query(collection(db, "users", user.uid, "kategori"));
-    const unsubKategori = onSnapshot(qKategori, async (snap) => {
-      if (snap.empty) {
+    const load = async () => {
+      const [transRes, hutangRes, kategoriRes, riwayatRes] = await Promise.all([
+        supabase.from('transaksi').select('*').eq('user_id', user.id).order('tanggal', { ascending: false }),
+        supabase.from('hutang_piutang').select('*').eq('user_id', user.id).order('tanggal', { ascending: false }),
+        supabase.from('kategori').select('*').eq('user_id', user.id).order('urutan', { ascending: true }),
+        supabase.from('riwayat_cicilan').select('*').eq('user_id', user.id).order('tanggal', { ascending: false }),
+      ]);
+      if (!active) return;
+
+      setTransaksi(transRes.data || []);
+      setHutangPiutang(hutangRes.data || []);
+      setRiwayatCicilan(riwayatRes.data || []);
+
+      if (!kategoriRes.data || kategoriRes.data.length === 0) {
         // Seeding kategori default sekali di awal, khusus untuk akun ini
-        const batch = writeBatch(db);
+        const rows = [];
         Object.entries(DEFAULT_KATEGORI).forEach(([tipe, list]) => {
-          list.forEach((nama, i) => {
-            const ref = doc(collection(db, "users", user.uid, "kategori"));
-            batch.set(ref, { nama, tipe, urutan: i });
-          });
+          list.forEach((nama, i) => rows.push({ user_id: user.id, nama, tipe, urutan: i }));
         });
-        await batch.commit().catch(() => {});
-        return;
+        const { data: seeded } = await supabase.from('kategori').insert(rows).select();
+        if (active) setKategoriList(seeded || []);
+      } else {
+        setKategoriList(kategoriRes.data);
       }
-      setKategoriList(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.urutan ?? 0) - (b.urutan ?? 0)));
-    });
+    };
+    load();
 
-    return () => { unsubTrans(); unsubHutang(); unsubKategori(); };
+    const channel = supabase
+      .channel(`data-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transaksi', filter: `user_id=eq.${user.id}` }, applyRealtimeChange(setTransaksi, byTanggalDesc))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hutang_piutang', filter: `user_id=eq.${user.id}` }, applyRealtimeChange(setHutangPiutang, byTanggalDesc))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kategori', filter: `user_id=eq.${user.id}` }, applyRealtimeChange(setKategoriList, byUrutanAsc))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'riwayat_cicilan', filter: `user_id=eq.${user.id}` }, applyRealtimeChange(setRiwayatCicilan, byTanggalDesc))
+      .subscribe();
+
+    return () => { active = false; supabase.removeChannel(channel); };
   }, [user]);
 
-  const handleLogin = async () => { try { await signInWithPopup(auth, provider); } catch(e) { showToast('Gagal Login', 'error'); } };
-  const handleLogout = () => signOut(auth);
+  const handleMagicLink = async (e) => {
+    e.preventDefault();
+    if (!loginEmail.trim()) return showToast('Masukin email dulu!', 'error');
+    setSendingLink(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: loginEmail.trim(),
+      options: { emailRedirectTo: window.location.origin + window.location.pathname }
+    });
+    setSendingLink(false);
+    if (error) return showToast('Gagal mengirim link', 'error');
+    setMagicLinkSent(true);
+  };
+  const handleLogout = () => supabase.auth.signOut();
 
   if (loadingAuth) return (
     <div className="min-h-screen flex items-center justify-center bg-ledger-900">
@@ -199,15 +250,29 @@ const App = () => {
           </div>
           <h1 className="font-display text-3xl font-semibold text-white mb-2">Catat Utang</h1>
           <p className="text-ledger-200 text-sm mb-8">Kas harian, hutang, dan piutang — semua rapi dalam satu catatan.</p>
-          <button onClick={handleLogin} className="w-full py-3.5 bg-white text-stone-700 rounded-2xl font-semibold hover:bg-stone-50 transition flex justify-center gap-3 items-center shadow-nav focus:outline-none focus:ring-2 focus:ring-white/50">
-            <svg className="w-5 h-5" viewBox="0 0 48 48">
-              <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
-              <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
-              <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
-              <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
-            </svg>
-            Login dengan Google
-          </button>
+
+          {magicLinkSent ? (
+            <div className="bg-white/10 border border-white/20 rounded-2xl p-5 text-left">
+              <p className="text-white font-semibold mb-1">Cek email kamu 📩</p>
+              <p className="text-ledger-200 text-sm mb-4">Kami udah kirim link login ke <span className="font-semibold text-white">{loginEmail}</span>. Buka email itu di HP/laptop ini, tap link-nya, dan kamu bakal otomatis masuk.</p>
+              <button onClick={() => setMagicLinkSent(false)} className="text-xs text-ledger-200 underline hover:text-white transition">Salah email? Kirim ulang</button>
+            </div>
+          ) : (
+            <form onSubmit={handleMagicLink} className="space-y-3">
+              <input
+                type="email"
+                required
+                placeholder="Alamat email kamu"
+                value={loginEmail}
+                onChange={e => setLoginEmail(e.target.value)}
+                className="w-full p-3.5 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-ledger-300 outline-none focus:ring-2 focus:ring-white/40 transition"
+              />
+              <button disabled={sendingLink} type="submit" className="w-full py-3.5 bg-white text-stone-700 rounded-2xl font-semibold hover:bg-stone-50 transition flex justify-center gap-2 items-center shadow-nav disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/50">
+                {sendingLink ? <Spinner className="h-5 w-5" /> : 'Kirim Link Login'}
+              </button>
+              <p className="text-ledger-300 text-xs">Gak perlu bikin password. Kami kirim link ke email kamu, tinggal tap buat masuk.</p>
+            </form>
+          )}
         </div>
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       </div>
@@ -218,11 +283,13 @@ const App = () => {
   const totalPemasukan = transaksi.filter(t => t.tipe === 'pemasukan').reduce((acc, curr) => acc + curr.nominal, 0);
   const totalPengeluaran = transaksi.filter(t => t.tipe === 'pengeluaran').reduce((acc, curr) => acc + curr.nominal, 0);
   const saldo = totalPemasukan - totalPengeluaran;
-  
+
   const hutangAktif = hutangPiutang.filter(h => h.tipe === 'hutang' && h.status === 'aktif').reduce((acc, curr) => acc + (curr.total - curr.terbayar), 0);
   const piutangAktif = hutangPiutang.filter(h => h.tipe === 'piutang' && h.status === 'aktif').reduce((acc, curr) => acc + (curr.total - curr.terbayar), 0);
 
   const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
+
+  const displayName = user.user_metadata?.full_name || user.user_metadata?.name || user.email;
 
   return (
     <div className="max-w-md mx-auto pb-32 pt-6 px-4">
@@ -233,7 +300,7 @@ const App = () => {
             <span className="font-display font-bold text-sm text-brass-300">Rp</span>
           </div>
           <div>
-            <h2 className="font-display text-xl font-semibold text-stone-800 leading-tight">Halo, {user.displayName?.split(' ')[0]}</h2>
+            <h2 className="font-display text-xl font-semibold text-stone-800 leading-tight">Halo, {displayName?.split(' ')[0]}</h2>
             <p className="text-sm text-stone-400">Catat keuanganmu hari ini</p>
           </div>
         </div>
@@ -246,7 +313,7 @@ const App = () => {
       <div key={activeTab} className="fade-in">
         {activeTab === 'dashboard' && <Dashboard saldo={saldo} inTotal={totalPemasukan} outTotal={totalPengeluaran} hutang={hutangAktif} piutang={piutangAktif} formatRp={formatRp} />}
         {activeTab === 'transaksi' && <TransaksiForm user={user} showToast={showToast} kategoriList={kategoriList} />}
-        {activeTab === 'hutang' && <HutangPage user={user} showToast={showToast} hutangPiutang={hutangPiutang} formatRp={formatRp} />}
+        {activeTab === 'hutang' && <HutangPage user={user} showToast={showToast} hutangPiutang={hutangPiutang} riwayatCicilan={riwayatCicilan} formatRp={formatRp} />}
         {activeTab === 'riwayat' && <RiwayatList user={user} transaksi={transaksi} showToast={showToast} formatRp={formatRp} />}
         {activeTab === 'backup' && <Backup user={user} showToast={showToast} />}
       </div>
@@ -263,9 +330,9 @@ const App = () => {
           { id: 'riwayat', icon: 'M4 6h16M4 10h16M4 14h16M4 18h16', label: 'Riwayat' },
           { id: 'backup', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12', label: 'Backup' }
         ].map(item => (
-          <button 
-            key={item.id} 
-            onClick={() => setActiveTab(item.id)} 
+          <button
+            key={item.id}
+            onClick={() => setActiveTab(item.id)}
             className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition ${activeTab === item.id ? 'bg-white/10 text-brass-300' : 'text-ledger-300/60 hover:text-ledger-100'}`}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
@@ -291,7 +358,7 @@ const Dashboard = ({ saldo, inTotal, outTotal, hutang, piutang, formatRp }) => (
         <h2 className="font-mono text-4xl font-bold tracking-tight">{formatRp(saldo)}</h2>
       </div>
     </div>
-    
+
     <div className="grid grid-cols-2 gap-3">
       <div className="stagger-item bg-white rounded-2xl shadow-soft border border-stone-100 p-4" style={{ animationDelay: '40ms' }}>
         <div className="w-8 h-8 rounded-full bg-moss-100 text-moss-600 flex items-center justify-center mb-2.5">
@@ -353,7 +420,13 @@ const TransaksiForm = ({ user, showToast, kategoriList }) => {
     if (!form.kategori) return showToast('Pilih kategori dulu!', 'error');
     setLoading(true);
     try {
-      await addDoc(collection(db, "users", user.uid, "transaksi"), { ...form, nominal: Number(form.nominal), tanggal: new Date() });
+      const { error } = await supabase.from('transaksi').insert({
+        user_id: user.id,
+        tipe: form.tipe,
+        kategori: form.kategori,
+        nominal: Number(form.nominal),
+      });
+      if (error) throw error;
       showToast('Transaksi berhasil dicatat!');
       setForm({ ...form, nominal: '' });
     } catch (e) { showToast('Gagal menyimpan', 'error'); }
@@ -427,7 +500,8 @@ const KategoriManager = ({ user, showToast, kategoriList, onClose }) => {
     setSaving(true);
     try {
       const urutanBaru = list.length > 0 ? Math.max(...list.map(k => k.urutan ?? 0)) + 1 : 0;
-      await addDoc(collection(db, "users", user.uid, "kategori"), { nama, tipe: tab, urutan: urutanBaru });
+      const { error } = await supabase.from('kategori').insert({ user_id: user.id, nama, tipe: tab, urutan: urutanBaru });
+      if (error) throw error;
       setNamaBaru('');
     } catch (e) { showToast('Gagal menambah kategori', 'error'); }
     setSaving(false);
@@ -435,23 +509,26 @@ const KategoriManager = ({ user, showToast, kategoriList, onClose }) => {
 
   const hapusKategori = async () => {
     try {
-      await deleteDoc(doc(db, "users", user.uid, "kategori", modalHapus.id));
+      const { error } = await supabase.from('kategori').delete().eq('id', modalHapus.id);
+      if (error) throw error;
       showToast('Kategori dihapus');
     } catch (e) { showToast('Gagal menghapus', 'error'); }
   };
 
-  const renameKategori = async (k, namaBaru) => {
-    if (!namaBaru.trim() || namaBaru === k.nama) return;
-    try { await updateDoc(doc(db, "users", user.uid, "kategori", k.id), { nama: namaBaru.trim() }); }
-    catch (e) { showToast('Gagal mengubah nama', 'error'); }
+  const renameKategori = async (k, namaBaruInput) => {
+    if (!namaBaruInput.trim() || namaBaruInput === k.nama) return;
+    try {
+      const { error } = await supabase.from('kategori').update({ nama: namaBaruInput.trim() }).eq('id', k.id);
+      if (error) throw error;
+    } catch (e) { showToast('Gagal mengubah nama', 'error'); }
   };
 
-  // Simpan urutan baru ke Firestore setelah drag selesai (batch write)
+  // Simpan urutan baru ke Supabase setelah drag selesai (satu request upsert)
   const simpanUrutan = async (arr) => {
     try {
-      const batch = writeBatch(db);
-      arr.forEach((k, i) => batch.update(doc(db, "users", user.uid, "kategori", k.id), { urutan: i }));
-      await batch.commit();
+      const updates = arr.map((k, i) => ({ id: k.id, user_id: user.id, nama: k.nama, tipe: k.tipe, urutan: i }));
+      const { error } = await supabase.from('kategori').upsert(updates);
+      if (error) throw error;
     } catch (e) { showToast('Gagal menyimpan urutan', 'error'); }
   };
 
@@ -556,9 +633,10 @@ const HutangForm = ({ user, showToast }) => {
     if (!form.nama || !form.nominal || form.nominal <= 0) return showToast('Data tidak lengkap/valid!', 'error');
     setLoading(true);
     try {
-      await addDoc(collection(db, "users", user.uid, "hutang_piutang"), { 
-        tipe: form.tipe, nama: form.nama, total: Number(form.nominal), terbayar: 0, status: 'aktif', tanggal: new Date(), riwayat: []
+      const { error } = await supabase.from('hutang_piutang').insert({
+        user_id: user.id, tipe: form.tipe, nama: form.nama, total: Number(form.nominal), terbayar: 0, status: 'aktif'
       });
+      if (error) throw error;
       showToast('Data berhasil dicatat!');
       setForm({ ...form, nama: '', nominal: '' });
     } catch (e) { showToast('Gagal menyimpan', 'error'); }
@@ -589,7 +667,7 @@ const HutangForm = ({ user, showToast }) => {
 // ==========================================
 // 6b. HALAMAN HUTANG (Form + List + Cicilan digabung jadi satu tab)
 // ==========================================
-const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
+const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }) => {
   const [search, setSearch] = useState('');
   const [modalHapus, setModalHapus] = useState({ isOpen: false, id: null });
   const [expandedId, setExpandedId] = useState(null);
@@ -602,7 +680,8 @@ const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
 
   const eksekusiHapus = async () => {
     try {
-      await deleteDoc(doc(db, "users", user.uid, "hutang_piutang", modalHapus.id));
+      const { error } = await supabase.from('hutang_piutang').delete().eq('id', modalHapus.id);
+      if (error) throw error;
       showToast('Data terhapus!');
     } catch (e) { showToast('Gagal menghapus', 'error'); }
   };
@@ -613,23 +692,29 @@ const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
     if (!bayar || bayar <= 0 || bayar > sisa) return showToast('Nominal tidak valid / melebih sisa!', 'error');
 
     try {
-      const transRef = await addDoc(collection(db, "users", user.uid, "transaksi"), {
-        tipe: h.tipe === 'hutang' ? 'pengeluaran' : 'pemasukan',
-        kategori: `Pembayaran ${h.tipe} - ${h.nama}`,
-        nominal: bayar,
-        tanggal: new Date()
-      });
+      const { data: trans, error: errTrans } = await supabase
+        .from('transaksi')
+        .insert({
+          user_id: user.id,
+          tipe: h.tipe === 'hutang' ? 'pengeluaran' : 'pemasukan',
+          kategori: `Pembayaran ${h.tipe} - ${h.nama}`,
+          nominal: bayar,
+        })
+        .select()
+        .single();
+      if (errTrans) throw errTrans;
 
-      const riwayatBaru = { id: Date.now().toString(), transId: transRef.id, nominal: bayar, tanggal: new Date() };
-      const updatedRiwayat = [...(h.riwayat || []), riwayatBaru];
+      const { error: errRiwayat } = await supabase.from('riwayat_cicilan').insert({
+        user_id: user.id, hutang_id: h.id, trans_id: trans.id, nominal: bayar,
+      });
+      if (errRiwayat) throw errRiwayat;
+
       const newTerbayar = h.terbayar + bayar;
-
-      const docRef = doc(db, "users", user.uid, "hutang_piutang", h.id);
-      await updateDoc(docRef, {
-        terbayar: newTerbayar,
-        status: (newTerbayar >= h.total) ? 'lunas' : 'aktif',
-        riwayat: updatedRiwayat
-      });
+      const { error: errUpdate } = await supabase
+        .from('hutang_piutang')
+        .update({ terbayar: newTerbayar, status: newTerbayar >= h.total ? 'lunas' : 'aktif' })
+        .eq('id', h.id);
+      if (errUpdate) throw errUpdate;
 
       showToast('Pembayaran dicatat & disinkronkan ke kas!');
       setNominalBayar('');
@@ -640,18 +725,18 @@ const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
     if (!window.confirm('Yakin mau hapus riwayat cicilan ini? Saldo utang dan kas utama akan disesuaikan kembali.')) return;
 
     try {
-      const updatedRiwayat = (h.riwayat || []).filter(r => r.id !== item.id);
       const newTerbayar = h.terbayar - item.nominal;
+      const { error: errUpdate } = await supabase
+        .from('hutang_piutang')
+        .update({ terbayar: newTerbayar, status: newTerbayar >= h.total ? 'lunas' : 'aktif' })
+        .eq('id', h.id);
+      if (errUpdate) throw errUpdate;
 
-      const docRef = doc(db, "users", user.uid, "hutang_piutang", h.id);
-      await updateDoc(docRef, {
-        terbayar: newTerbayar,
-        status: newTerbayar >= h.total ? 'lunas' : 'aktif',
-        riwayat: updatedRiwayat
-      });
+      const { error: errDelRiwayat } = await supabase.from('riwayat_cicilan').delete().eq('id', item.id);
+      if (errDelRiwayat) throw errDelRiwayat;
 
-      if (item.transId) {
-        await deleteDoc(doc(db, "users", user.uid, "transaksi", item.transId));
+      if (item.trans_id) {
+        await supabase.from('transaksi').delete().eq('id', item.trans_id);
       }
 
       showToast('Riwayat berhasil dihapus!');
@@ -668,7 +753,9 @@ const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
       </div>
 
       <div className="space-y-3">
-        {filteredHutang.map((h, i) => (
+        {filteredHutang.map((h, i) => {
+          const riwayatH = riwayatCicilan.filter(r => r.hutang_id === h.id);
+          return (
           <div key={h.id} className="stagger-item bg-white p-4 rounded-2xl shadow-soft border border-stone-100" style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}>
             <div className="flex justify-between mb-3">
               <div>
@@ -676,7 +763,7 @@ const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
                   {h.tipe.toUpperCase()}
                 </span>
                 <p className="font-display font-semibold mt-1.5 text-stone-800">{h.nama}</p>
-                <p className="text-xs text-stone-400">{new Date(h.tanggal?.seconds * 1000).toLocaleDateString('id-ID')}</p>
+                <p className="text-xs text-stone-400">{new Date(h.tanggal).toLocaleDateString('id-ID')}</p>
               </div>
               <div className="text-right">
                 <span className={`text-[11px] px-2 py-1 rounded-full font-bold ${h.status === 'lunas' ? 'bg-moss-100 text-moss-700' : 'bg-stone-100 text-stone-500'}`}>
@@ -716,16 +803,14 @@ const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
 
                 <div className="space-y-2">
                   <p className="text-xs font-bold text-stone-400 uppercase tracking-wide">Riwayat Cicilan</p>
-                  {(!h.riwayat || h.riwayat.length === 0) ? (
+                  {riwayatH.length === 0 ? (
                     <p className="text-xs text-stone-400 italic">Belum ada riwayat cicilan dicatat.</p>
                   ) : (
-                    h.riwayat.map(r => (
+                    riwayatH.map(r => (
                       <div key={r.id} className="flex justify-between items-center bg-stone-50 p-2.5 rounded-lg border border-stone-100">
                         <div>
                           <p className="text-sm font-semibold text-stone-700 font-mono">{formatRp(r.nominal)}</p>
-                          <p className="text-[10px] text-stone-400">
-                            {r.tanggal?.seconds ? new Date(r.tanggal.seconds * 1000).toLocaleDateString('id-ID') : new Date(r.tanggal).toLocaleDateString('id-ID')}
-                          </p>
+                          <p className="text-[10px] text-stone-400">{new Date(r.tanggal).toLocaleDateString('id-ID')}</p>
                         </div>
                         <button onClick={() => hapusRiwayat(h, r)} className="text-brick-500 hover:text-brick-700 bg-brick-100 p-1.5 rounded-md transition" title="Hapus cicilan ini">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
@@ -743,7 +828,8 @@ const HutangPage = ({ user, showToast, hutangPiutang, formatRp }) => {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
         {filteredHutang.length === 0 && <EmptyState text="Belum ada data hutang/piutang" />}
       </div>
 
@@ -772,7 +858,8 @@ const RiwayatList = ({ user, transaksi, showToast, formatRp }) => {
 
   const eksekusiHapus = async () => {
     try {
-      await deleteDoc(doc(db, "users", user.uid, "transaksi", modalHapus.id));
+      const { error } = await supabase.from('transaksi').delete().eq('id', modalHapus.id);
+      if (error) throw error;
       showToast('Data terhapus!');
     } catch (e) { showToast('Gagal menghapus', 'error'); }
   };
@@ -793,7 +880,7 @@ const RiwayatList = ({ user, transaksi, showToast, formatRp }) => {
               </span>
               <div className="min-w-0">
                 <p className="font-semibold text-stone-800 truncate">{t.kategori}</p>
-                <p className="text-xs text-stone-400">{new Date(t.tanggal?.seconds * 1000).toLocaleDateString('id-ID')}</p>
+                <p className="text-xs text-stone-400">{new Date(t.tanggal).toLocaleDateString('id-ID')}</p>
               </div>
             </div>
             <div className="text-right flex flex-col items-end gap-1.5 shrink-0 pl-2">
@@ -823,16 +910,18 @@ const RiwayatList = ({ user, transaksi, showToast, formatRp }) => {
 // ==========================================
 const Backup = ({ user, showToast }) => {
   const fileRef = useRef(null);
-  
+
   const handleExport = async () => {
     try {
-      const transSnap = await getDocs(collection(db, "users", user.uid, "transaksi"));
-      const hutangSnap = await getDocs(collection(db, "users", user.uid, "hutang_piutang"));
-      const data = {
-        transaksi: transSnap.docs.map(d => d.data()),
-        hutang_piutang: hutangSnap.docs.map(d => d.data())
-      };
-      
+      const [transRes, hutangRes] = await Promise.all([
+        supabase.from('transaksi').select('*').eq('user_id', user.id),
+        supabase.from('hutang_piutang').select('*').eq('user_id', user.id),
+      ]);
+      if (transRes.error) throw transRes.error;
+      if (hutangRes.error) throw hutangRes.error;
+
+      const data = { transaksi: transRes.data, hutang_piutang: hutangRes.data };
+
       const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -850,21 +939,22 @@ const Backup = ({ user, showToast }) => {
     reader.onload = async (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        const batch = writeBatch(db);
-        
-        // Loop penambahan data tanpa menghapus yang lama
-        if(data.transaksi) data.transaksi.forEach(t => {
-           const ref = doc(collection(db, "users", user.uid, "transaksi"));
-           batch.set(ref, t);
-        });
-        if(data.hutang_piutang) data.hutang_piutang.forEach(h => {
-           const ref = doc(collection(db, "users", user.uid, "hutang_piutang"));
-           batch.set(ref, h);
-        });
-        
-        await batch.commit();
+
+        // Loop penambahan data tanpa menghapus yang lama.
+        // id lama dibuang supaya Postgres men-generate id baru (hindari bentrok primary key).
+        if (data.transaksi?.length) {
+          const rows = data.transaksi.map(({ id, user_id, ...rest }) => ({ ...rest, user_id: user.id }));
+          const { error } = await supabase.from('transaksi').insert(rows);
+          if (error) throw error;
+        }
+        if (data.hutang_piutang?.length) {
+          const rows = data.hutang_piutang.map(({ id, user_id, ...rest }) => ({ ...rest, user_id: user.id }));
+          const { error } = await supabase.from('hutang_piutang').insert(rows);
+          if (error) throw error;
+        }
+
         showToast('Restore data berhasil!');
-      } catch(error) { showToast('File JSON tidak valid', 'error'); }
+      } catch(error) { showToast('File JSON tidak valid / gagal restore', 'error'); }
     };
     reader.readAsText(file);
     e.target.value = null; // Reset input
@@ -880,11 +970,11 @@ const Backup = ({ user, showToast }) => {
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
           Download Backup JSON
         </button>
-        
+
         <div className="border-t border-stone-100 my-4"></div>
-        
+
         <div className="p-4 bg-brass-50 rounded-xl border border-brass-100 text-sm text-brass-800">
-          Import akan <b>menambahkan</b> data dari JSON ke database kamu (Data lama tidak dihapus).
+          Import akan <b>menambahkan</b> data dari JSON ke database kamu (Data lama tidak dihapus). Catatan cicilan (riwayat) tidak ikut ter-restore lewat cara ini.
         </div>
         <input type="file" accept=".json" ref={fileRef} className="hidden" onChange={handleImport} />
         <button onClick={() => fileRef.current.click()} className="w-full py-3.5 bg-white border-2 border-stone-200 text-stone-700 rounded-xl font-bold hover:bg-stone-50 transition flex justify-center items-center gap-2 focus:outline-none focus:ring-2 focus:ring-stone-300">
