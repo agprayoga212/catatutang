@@ -10,8 +10,8 @@ const { useState, useEffect, useMemo, useRef } = window.React;
 // - anon / public key
 // Aman untuk ditaruh di client (sama seperti Firebase apiKey), karena akses
 // data sebenarnya dibatasi oleh Row Level Security (RLS) di sisi database.
-const supabaseUrl = 'GANTI_DENGAN_SUPABASE_PROJECT_URL';
-const supabaseAnonKey = 'GANTI_DENGAN_SUPABASE_ANON_KEY';
+const supabaseUrl = 'https://jvjslgttadrtopudoalp.supabase.co';
+const supabaseAnonKey = 'sb_publishable_Wg3Czeef7BG-0DYU8g-zxg_w9FvbWoo';
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
