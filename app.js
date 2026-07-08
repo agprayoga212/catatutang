@@ -114,7 +114,7 @@ const kategoriInisial = (kategori = '') => {
 
 // Kategori bawaan (dipakai untuk seeding pertama kali per akun, kalau user belum pernah punya kategori sendiri)
 const DEFAULT_KATEGORI = {
-  pengeluaran: ['Makan Minum', 'Belanja Online', 'Kebutuhan Harian', 'Lainnya'],
+  pengeluaran: ['Konsumsi', 'Belanja Online', 'Kebutuhan Harian', 'Lainnya'],
   pemasukan: ['Gaji/Fee', 'Lainnya']
 };
 
