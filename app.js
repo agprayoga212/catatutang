@@ -826,6 +826,7 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
   const [modalHapus, setModalHapus] = useState({ isOpen: false, id: null });
   const [expandedId, setExpandedId] = useState(null);
   const [nominalBayar, setNominalBayar] = useState('');
+  const [metodeBayar, setMetodeBayar] = useState('transfer');
 
   const filteredHutang = useMemo(
     () => hutangPiutang.filter(h => h.nama?.toLowerCase().includes(search.toLowerCase())),
@@ -844,6 +845,7 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
     const bayar = Number(nominalBayar);
     const sisa = h.total - h.terbayar;
     if (!bayar || bayar <= 0 || bayar > sisa) return showToast('Nominal tidak valid / melebih sisa!', 'error');
+    const metodeLabel = metodeBayar === 'transfer' ? 'TF' : 'Cash';
 
     try {
       const { data: trans, error: errTrans } = await supabase
@@ -851,7 +853,7 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
         .insert({
           user_id: user.id,
           tipe: h.tipe === 'hutang' ? 'pengeluaran' : 'pemasukan',
-          kategori: `Pembayaran ${h.tipe} - ${h.nama}`,
+          kategori: `Pembayaran ${h.tipe} - ${h.nama} (${metodeLabel})`,
           nominal: bayar,
         })
         .select()
@@ -859,7 +861,7 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
       if (errTrans) throw errTrans;
 
       const { error: errRiwayat } = await supabase.from('riwayat_cicilan').insert({
-        user_id: user.id, hutang_id: h.id, trans_id: trans.id, nominal: bayar,
+        user_id: user.id, hutang_id: h.id, trans_id: trans.id, nominal: bayar, metode: metodeBayar,
       });
       if (errRiwayat) throw errRiwayat;
 
@@ -872,6 +874,7 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
 
       showToast('Pembayaran dicatat & disinkronkan ke kas!');
       setNominalBayar('');
+      setMetodeBayar('transfer');
     } catch (e) { showToast('Gagal bayar', 'error'); }
   };
 
@@ -956,12 +959,19 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
                   <div className="mt-3 border-t border-stone-100 pt-3 fade-in">
 
                     {h.status !== 'lunas' && (
-                      <div className="flex gap-2 mb-4">
-                        <div className="relative flex-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-mono text-sm">Rp</span>
-                          <input type="number" placeholder="Nominal Cicilan" className="w-full p-2.5 pl-9 border border-stone-200 bg-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-ledger-200 font-mono" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
+                      <div className="mb-4 space-y-2">
+                        <SegmentToggle
+                          options={[{ value: 'tunai', label: 'Tunai' }, { value: 'transfer', label: 'Transfer' }]}
+                          value={metodeBayar}
+                          onChange={setMetodeBayar}
+                        />
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-mono text-sm">Rp</span>
+                            <input type="number" placeholder="Nominal Cicilan" className="w-full p-2.5 pl-9 border border-stone-200 bg-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-ledger-200 font-mono" value={nominalBayar} onChange={e => setNominalBayar(e.target.value)} />
+                          </div>
+                          <button onClick={() => bayarHutang(h)} className="bg-ledger-700 text-white px-5 rounded-lg text-sm font-bold hover:bg-ledger-800 transition focus:outline-none focus:ring-2 focus:ring-ledger-300">Bayar</button>
                         </div>
-                        <button onClick={() => bayarHutang(h)} className="bg-ledger-700 text-white px-5 rounded-lg text-sm font-bold hover:bg-ledger-800 transition focus:outline-none focus:ring-2 focus:ring-ledger-300">Bayar</button>
                       </div>
                     )}
 
@@ -973,7 +983,12 @@ const HutangPage = ({ user, showToast, hutangPiutang, riwayatCicilan, formatRp }
                         riwayatH.map(r => (
                           <div key={r.id} className="flex justify-between items-center bg-stone-50 p-2.5 rounded-lg border border-stone-100">
                             <div>
-                              <p className="text-sm font-semibold text-stone-700 font-mono">{formatRp(r.nominal)}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-stone-700 font-mono">{formatRp(r.nominal)}</p>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${r.metode === 'transfer' ? 'bg-petrol-100 text-petrol-700' : 'bg-moss-100 text-moss-700'}`}>
+                                  {r.metode === 'transfer' ? 'TF' : 'Cash'}
+                                </span>
+                              </div>
                               <p className="text-[10px] text-stone-400">{new Date(r.tanggal).toLocaleDateString('id-ID')}</p>
                             </div>
                             <button onClick={() => hapusRiwayat(h, r)} className="text-brick-500 hover:text-brick-700 bg-brick-100 p-1.5 rounded-md transition" title="Hapus cicilan ini">
